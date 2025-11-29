@@ -74,7 +74,7 @@ func TestDoRequest_UsesRetry(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Token endpoint
 		if r.URL.Path == "/oidc/token" {
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"access_token": "test-token",
 				"expires_in":   3600,
 			})
@@ -87,7 +87,7 @@ func TestDoRequest_UsesRetry(t *testing.T) {
 			return
 		}
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]string{"id": "test"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"id": "test"})
 	}))
 	defer server.Close()
 
@@ -112,7 +112,7 @@ func TestDoRequest_ReturnsAPIError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Token endpoint
 		if r.URL.Path == "/oidc/token" {
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"access_token": "test-token",
 				"expires_in":   3600,
 			})
@@ -120,7 +120,7 @@ func TestDoRequest_ReturnsAPIError(t *testing.T) {
 		}
 		// API endpoint returns error
 		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"message": "User not found",
 			"code":    "entity.not_found",
 		})
@@ -158,14 +158,14 @@ func TestDoRequest_ReturnsAPIError(t *testing.T) {
 func TestDoJSON_UnmarshalSuccess(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/oidc/token" {
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"access_token": "test-token",
 				"expires_in":   3600,
 			})
 			return
 		}
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"id":   "user-123",
 			"name": "Test User",
 		})
@@ -198,7 +198,7 @@ func TestDoJSON_UnmarshalSuccess(t *testing.T) {
 func TestDoNoContent_Success(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/oidc/token" {
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"access_token": "test-token",
 				"expires_in":   3600,
 			})
