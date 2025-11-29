@@ -793,3 +793,49 @@ func TestAuthenticateM2M_CachesToken(t *testing.T) {
 		t.Errorf("expected 1 token request (cached), got %d", callCount.Load())
 	}
 }
+
+func TestAuthenticateM2M_ConcurrentAccess(t *testing.T) {
+	var callCount atomic.Int32
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/oidc/token" {
+			callCount.Add(1)
+			// Simulate some delay to increase chance of race
+			time.Sleep(10 * time.Millisecond)
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"access_token": "test-access-token",
+				"expires_in":   3600,
+			})
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+
+	adapter := newTestAdapter(t, server.URL)
+
+	// Launch 100 concurrent goroutines
+	const numGoroutines = 100
+	done := make(chan error, numGoroutines)
+
+	for i := 0; i < numGoroutines; i++ {
+		go func() {
+			_, _, err := adapter.AuthenticateM2M(context.Background())
+			done <- err
+		}()
+	}
+
+	// Wait for all goroutines
+	for i := 0; i < numGoroutines; i++ {
+		if err := <-done; err != nil {
+			t.Errorf("goroutine %d error: %v", i, err)
+		}
+	}
+
+	// With proper locking, only 1 token request should be made
+	count := callCount.Load()
+	if count != 1 {
+		t.Errorf("expected 1 token request (race condition protection), got %d", count)
+	}
+}

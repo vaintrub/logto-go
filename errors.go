@@ -1,6 +1,7 @@
 package logto
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 )
@@ -96,6 +97,43 @@ func newAPIError(statusCode int, body []byte) *APIError {
 		StatusCode: statusCode,
 		Message:    string(body),
 	}
+}
+
+// newAPIErrorFromResponse creates an APIError with JSON parsing support.
+// It attempts to extract structured error info from the response body.
+func newAPIErrorFromResponse(statusCode int, body []byte) *APIError {
+	apiErr := &APIError{
+		StatusCode: statusCode,
+		Message:    string(body),
+	}
+
+	// Try to parse JSON error response from Logto
+	var errResp struct {
+		Message string `json:"message"`
+		Code    string `json:"code"`
+	}
+	if json.Unmarshal(body, &errResp) == nil {
+		if errResp.Message != "" {
+			apiErr.Message = errResp.Message
+		}
+		apiErr.Code = errResp.Code
+	}
+
+	return apiErr
+}
+
+// isExpectedStatus checks if the status code is in the expected list.
+// If expected is empty, it defaults to checking for 200 OK.
+func isExpectedStatus(code int, expected []int) bool {
+	if len(expected) == 0 {
+		return code == 200
+	}
+	for _, e := range expected {
+		if code == e {
+			return true
+		}
+	}
+	return false
 }
 
 // isRetryable returns true if the error represents a retryable condition.

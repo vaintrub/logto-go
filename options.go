@@ -6,6 +6,19 @@ import (
 	"time"
 )
 
+// Configuration constants
+const (
+	// tokenExpiryBuffer is the time before token expiry to trigger a refresh
+	tokenExpiryBuffer = 60 * time.Second
+
+	// Default configuration values
+	defaultTimeout      = 5 * time.Second
+	defaultRetryMax     = 1 // 1 = no retry (single attempt)
+	defaultRetryBackoff = 500 * time.Millisecond
+	defaultResource     = "https://default.logto.app/api"
+	defaultScope        = "all"
+)
+
 // Option configures the Adapter.
 type Option func(*options)
 
@@ -26,11 +39,11 @@ type options struct {
 // - Short timeout (5s) to fail fast
 func defaultOptions() *options {
 	return &options{
-		timeout:      5 * time.Second,
-		retryMax:     1,
-		retryBackoff: 500 * time.Millisecond,
-		resource:     "https://default.logto.app/api",
-		scope:        "all",
+		timeout:      defaultTimeout,
+		retryMax:     defaultRetryMax,
+		retryBackoff: defaultRetryBackoff,
+		resource:     defaultResource,
+		scope:        defaultScope,
 	}
 }
 

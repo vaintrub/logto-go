@@ -1,7 +1,6 @@
 package logto
 
 import (
-	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -85,15 +84,24 @@ func (a *Adapter) Ping(ctx context.Context) error {
 
 // AuthenticateM2M obtains a machine-to-machine access token
 func (a *Adapter) AuthenticateM2M(ctx context.Context) (string, int, error) {
-	// Check cached token (with 60s buffer before expiry)
+	// Fast path: check cached token with read lock
 	a.tokenMu.RLock()
-	if a.cachedToken != nil && time.Now().Add(60*time.Second).Before(a.cachedToken.expiresAt) {
+	if a.cachedToken != nil && time.Now().Add(tokenExpiryBuffer).Before(a.cachedToken.expiresAt) {
 		token := a.cachedToken.accessToken
 		expiresIn := int(time.Until(a.cachedToken.expiresAt).Seconds())
 		a.tokenMu.RUnlock()
 		return token, expiresIn, nil
 	}
 	a.tokenMu.RUnlock()
+
+	// Slow path: acquire write lock and double-check (prevents race condition)
+	a.tokenMu.Lock()
+	defer a.tokenMu.Unlock()
+
+	// Double-check after acquiring write lock
+	if a.cachedToken != nil && time.Now().Add(tokenExpiryBuffer).Before(a.cachedToken.expiresAt) {
+		return a.cachedToken.accessToken, int(time.Until(a.cachedToken.expiresAt).Seconds()), nil
+	}
 
 	// Request new token
 	tokenURL := fmt.Sprintf("%s/oidc/token", a.endpoint)
@@ -136,84 +144,46 @@ func (a *Adapter) AuthenticateM2M(ctx context.Context) (string, int, error) {
 		return "", 0, err
 	}
 
-	// Cache token
-	a.tokenMu.Lock()
+	// Cache token (already holding write lock from defer above)
 	a.cachedToken = &m2mTokenCache{
 		accessToken: tokenResp.AccessToken,
 		expiresAt:   time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second),
 	}
-	a.tokenMu.Unlock()
 
 	return tokenResp.AccessToken, tokenResp.ExpiresIn, nil
 }
 
 // GetUser retrieves user information from Logto
 func (a *Adapter) GetUser(ctx context.Context, userID string) (*User, error) {
-	token, _, err := a.AuthenticateM2M(ctx)
+	if userID == "" {
+		return nil, &ValidationError{Field: "userID", Message: "cannot be empty"}
+	}
+
+	body, _, err := a.doRequest(ctx, requestConfig{
+		method:     http.MethodGet,
+		path:       "/api/users/%s",
+		pathParams: []string{userID},
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	apiURL := fmt.Sprintf("%s/api/users/%s", a.endpoint, userID)
-
-	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
-
-	resp, err := a.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("get user request failed: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read get user response body: %w", err)
-	}
-
-	if resp.StatusCode == http.StatusNotFound {
-		return nil, &APIError{StatusCode: 404, Message: fmt.Sprintf("user not found: %s", userID)}
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("get user failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	return a.parseUserResponse(body)
+	return parseUserResponse(body)
 }
 
 // GetUserByEmail retrieves user information by email
 func (a *Adapter) GetUserByEmail(ctx context.Context, email string) (*User, error) {
-	token, _, err := a.AuthenticateM2M(ctx)
+	if email == "" {
+		return nil, &ValidationError{Field: "email", Message: "cannot be empty"}
+	}
+
+	body, _, err := a.doRequest(ctx, requestConfig{
+		method: http.MethodGet,
+		path:   "/api/users",
+		query:  url.Values{"search": {email}},
+	})
 	if err != nil {
 		return nil, err
-	}
-
-	apiURL := fmt.Sprintf("%s/api/users?search=%s", a.endpoint, url.QueryEscape(email))
-
-	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
-
-	resp, err := a.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("get user by email request failed: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("get user by email failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
 	var users []json.RawMessage
@@ -223,7 +193,7 @@ func (a *Adapter) GetUserByEmail(ctx context.Context, email string) (*User, erro
 
 	// Find user with exact email match
 	for _, userData := range users {
-		user, err := a.parseUserResponse(userData)
+		user, err := parseUserResponse(userData)
 		if err != nil {
 			continue
 		}
@@ -237,33 +207,12 @@ func (a *Adapter) GetUserByEmail(ctx context.Context, email string) (*User, erro
 
 // ListUsers retrieves all users
 func (a *Adapter) ListUsers(ctx context.Context) ([]*User, error) {
-	token, _, err := a.AuthenticateM2M(ctx)
+	body, _, err := a.doRequest(ctx, requestConfig{
+		method: http.MethodGet,
+		path:   "/api/users",
+	})
 	if err != nil {
 		return nil, err
-	}
-
-	apiURL := fmt.Sprintf("%s/api/users", a.endpoint)
-
-	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
-
-	resp, err := a.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("list users request failed: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("list users failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
 	var usersData []json.RawMessage
@@ -273,7 +222,7 @@ func (a *Adapter) ListUsers(ctx context.Context) ([]*User, error) {
 
 	users := make([]*User, 0, len(usersData))
 	for _, userData := range usersData {
-		user, err := a.parseUserResponse(userData)
+		user, err := parseUserResponse(userData)
 		if err != nil {
 			continue
 		}
@@ -285,71 +234,30 @@ func (a *Adapter) ListUsers(ctx context.Context) ([]*User, error) {
 
 // GetOrganization retrieves organization details
 func (a *Adapter) GetOrganization(ctx context.Context, orgID string) (*Organization, error) {
-	token, _, err := a.AuthenticateM2M(ctx)
+	if orgID == "" {
+		return nil, &ValidationError{Field: "orgID", Message: "cannot be empty"}
+	}
+
+	body, _, err := a.doRequest(ctx, requestConfig{
+		method:     http.MethodGet,
+		path:       "/api/organizations/%s",
+		pathParams: []string{orgID},
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	apiURL := fmt.Sprintf("%s/api/organizations/%s", a.endpoint, orgID)
-
-	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
-
-	resp, err := a.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("get organization request failed: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	if resp.StatusCode == http.StatusNotFound {
-		return nil, &APIError{StatusCode: 404, Message: fmt.Sprintf("organization not found: %s", orgID)}
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("get organization failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	return a.parseOrganizationResponse(body)
+	return parseOrganizationResponse(body)
 }
 
 // ListOrganizations retrieves all organizations
 func (a *Adapter) ListOrganizations(ctx context.Context) ([]*Organization, error) {
-	token, _, err := a.AuthenticateM2M(ctx)
+	body, _, err := a.doRequest(ctx, requestConfig{
+		method: http.MethodGet,
+		path:   "/api/organizations",
+	})
 	if err != nil {
 		return nil, err
-	}
-
-	apiURL := fmt.Sprintf("%s/api/organizations", a.endpoint)
-
-	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
-
-	resp, err := a.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("list organizations request failed: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("list organizations failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
 	var orgsData []json.RawMessage
@@ -359,7 +267,7 @@ func (a *Adapter) ListOrganizations(ctx context.Context) ([]*Organization, error
 
 	orgs := make([]*Organization, 0, len(orgsData))
 	for _, orgData := range orgsData {
-		org, err := a.parseOrganizationResponse(orgData)
+		org, err := parseOrganizationResponse(orgData)
 		if err != nil {
 			continue
 		}
@@ -371,33 +279,17 @@ func (a *Adapter) ListOrganizations(ctx context.Context) ([]*Organization, error
 
 // ListUserOrganizations retrieves organizations where the user is a member
 func (a *Adapter) ListUserOrganizations(ctx context.Context, userID string) ([]*Organization, error) {
-	token, _, err := a.AuthenticateM2M(ctx)
+	if userID == "" {
+		return nil, &ValidationError{Field: "userID", Message: "cannot be empty"}
+	}
+
+	body, _, err := a.doRequest(ctx, requestConfig{
+		method:     http.MethodGet,
+		path:       "/api/users/%s/organizations",
+		pathParams: []string{userID},
+	})
 	if err != nil {
 		return nil, err
-	}
-
-	apiURL := fmt.Sprintf("%s/api/users/%s/organizations", a.endpoint, userID)
-
-	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
-
-	resp, err := a.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("list user organizations request failed: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("list user organizations failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
 	var orgsData []json.RawMessage
@@ -407,7 +299,7 @@ func (a *Adapter) ListUserOrganizations(ctx context.Context, userID string) ([]*
 
 	orgs := make([]*Organization, 0, len(orgsData))
 	for _, orgData := range orgsData {
-		org, err := a.parseOrganizationResponse(orgData)
+		org, err := parseOrganizationResponse(orgData)
 		if err != nil {
 			continue
 		}
@@ -419,62 +311,32 @@ func (a *Adapter) ListUserOrganizations(ctx context.Context, userID string) ([]*
 
 // CreateOrganization creates a new organization in Logto
 func (a *Adapter) CreateOrganization(ctx context.Context, name, description string) (string, error) {
-	token, _, err := a.AuthenticateM2M(ctx)
-	if err != nil {
-		return "", err
+	if name == "" {
+		return "", &ValidationError{Field: "name", Message: "cannot be empty"}
 	}
 
-	apiURL := fmt.Sprintf("%s/api/organizations", a.endpoint)
-
-	payload := map[string]interface{}{
-		"name":        name,
-		"description": description,
-	}
-
-	jsonData, _ := json.Marshal(payload)
-
-	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewReader(jsonData))
-	if err != nil {
-		return "", err
-	}
-
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := a.httpClient.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("create organization request failed: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("create organization failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	var orgResp struct {
+	var result struct {
 		ID string `json:"id"`
 	}
 
-	if err := json.Unmarshal(body, &orgResp); err != nil {
+	err := a.doJSON(ctx, requestConfig{
+		method:      http.MethodPost,
+		path:        "/api/organizations",
+		body:        map[string]string{"name": name, "description": description},
+		expectCodes: []int{http.StatusCreated, http.StatusOK},
+	}, &result)
+	if err != nil {
 		return "", err
 	}
 
-	return orgResp.ID, nil
+	return result.ID, nil
 }
 
 // UpdateOrganization updates organization details
 func (a *Adapter) UpdateOrganization(ctx context.Context, orgID string, name, description string, customData map[string]interface{}) error {
-	token, _, err := a.AuthenticateM2M(ctx)
-	if err != nil {
-		return err
+	if orgID == "" {
+		return &ValidationError{Field: "orgID", Message: "cannot be empty"}
 	}
-
-	apiURL := fmt.Sprintf("%s/api/organizations/%s", a.endpoint, orgID)
 
 	payload := make(map[string]interface{})
 	if name != "" {
@@ -487,89 +349,42 @@ func (a *Adapter) UpdateOrganization(ctx context.Context, orgID string, name, de
 		payload["customData"] = customData
 	}
 
-	jsonData, _ := json.Marshal(payload)
-
-	req, err := http.NewRequestWithContext(ctx, "PATCH", apiURL, bytes.NewReader(jsonData))
-	if err != nil {
-		return err
-	}
-
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := a.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("update organization request failed: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("update organization failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	return nil
+	return a.doNoContent(ctx, requestConfig{
+		method:      http.MethodPatch,
+		path:        "/api/organizations/%s",
+		pathParams:  []string{orgID},
+		body:        payload,
+		expectCodes: []int{http.StatusOK},
+	})
 }
 
 // DeleteOrganization removes an organization from Logto
 func (a *Adapter) DeleteOrganization(ctx context.Context, orgID string) error {
-	token, _, err := a.AuthenticateM2M(ctx)
-	if err != nil {
-		return err
+	if orgID == "" {
+		return &ValidationError{Field: "orgID", Message: "cannot be empty"}
 	}
 
-	apiURL := fmt.Sprintf("%s/api/organizations/%s", a.endpoint, orgID)
-
-	req, err := http.NewRequestWithContext(ctx, "DELETE", apiURL, nil)
-	if err != nil {
-		return err
-	}
-
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
-
-	resp, err := a.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("delete organization request failed: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("delete organization failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	return nil
+	return a.doNoContent(ctx, requestConfig{
+		method:      http.MethodDelete,
+		path:        "/api/organizations/%s",
+		pathParams:  []string{orgID},
+		expectCodes: []int{http.StatusNoContent, http.StatusOK},
+	})
 }
 
 // ListOrganizationMembers lists all members of an organization with their roles
 func (a *Adapter) ListOrganizationMembers(ctx context.Context, orgID string) ([]*OrganizationMember, error) {
-	token, _, err := a.AuthenticateM2M(ctx)
+	if orgID == "" {
+		return nil, &ValidationError{Field: "orgID", Message: "cannot be empty"}
+	}
+
+	body, _, err := a.doRequest(ctx, requestConfig{
+		method:     http.MethodGet,
+		path:       "/api/organizations/%s/users",
+		pathParams: []string{orgID},
+	})
 	if err != nil {
 		return nil, err
-	}
-
-	apiURL := fmt.Sprintf("%s/api/organizations/%s/users", a.endpoint, orgID)
-
-	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
-
-	resp, err := a.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("list organization members request failed: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("list organization members failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
 	var membersData []json.RawMessage
@@ -579,7 +394,7 @@ func (a *Adapter) ListOrganizationMembers(ctx context.Context, orgID string) ([]
 
 	members := make([]*OrganizationMember, 0, len(membersData))
 	for _, memberData := range membersData {
-		user, err := a.parseUserResponse(memberData)
+		user, err := parseUserResponse(memberData)
 		if err != nil {
 			continue
 		}
@@ -604,37 +419,22 @@ func (a *Adapter) ListOrganizationMembers(ctx context.Context, orgID string) ([]
 
 // AddUserToOrganization adds a user to an organization with specified roles
 func (a *Adapter) AddUserToOrganization(ctx context.Context, orgID, userID string, roleIDs []string) error {
-	token, _, err := a.AuthenticateM2M(ctx)
+	if orgID == "" {
+		return &ValidationError{Field: "orgID", Message: "cannot be empty"}
+	}
+	if userID == "" {
+		return &ValidationError{Field: "userID", Message: "cannot be empty"}
+	}
+
+	err := a.doNoContent(ctx, requestConfig{
+		method:      http.MethodPost,
+		path:        "/api/organizations/%s/users",
+		pathParams:  []string{orgID},
+		body:        map[string][]string{"userIds": {userID}},
+		expectCodes: []int{http.StatusCreated, http.StatusOK, http.StatusNoContent},
+	})
 	if err != nil {
 		return err
-	}
-
-	// Add user as member
-	apiURL := fmt.Sprintf("%s/api/organizations/%s/users", a.endpoint, orgID)
-
-	payload := map[string]interface{}{
-		"userIds": []string{userID},
-	}
-
-	jsonData, _ := json.Marshal(payload)
-
-	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewReader(jsonData))
-	if err != nil {
-		return err
-	}
-
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := a.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("add user to organization request failed: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("add user to organization failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
 	// Assign roles if provided
@@ -647,100 +447,55 @@ func (a *Adapter) AddUserToOrganization(ctx context.Context, orgID, userID strin
 
 // RemoveUserFromOrganization removes a user from an organization
 func (a *Adapter) RemoveUserFromOrganization(ctx context.Context, orgID, userID string) error {
-	token, _, err := a.AuthenticateM2M(ctx)
-	if err != nil {
-		return err
+	if orgID == "" {
+		return &ValidationError{Field: "orgID", Message: "cannot be empty"}
+	}
+	if userID == "" {
+		return &ValidationError{Field: "userID", Message: "cannot be empty"}
 	}
 
-	apiURL := fmt.Sprintf("%s/api/organizations/%s/users/%s", a.endpoint, orgID, userID)
-
-	req, err := http.NewRequestWithContext(ctx, "DELETE", apiURL, nil)
-	if err != nil {
-		return err
-	}
-
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
-
-	resp, err := a.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("remove user from organization request failed: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("remove user from organization failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	return nil
+	return a.doNoContent(ctx, requestConfig{
+		method:      http.MethodDelete,
+		path:        "/api/organizations/%s/users/%s",
+		pathParams:  []string{orgID, userID},
+		expectCodes: []int{http.StatusNoContent, http.StatusOK},
+	})
 }
 
 // UpdateUserRoles updates a user's roles in an organization
 func (a *Adapter) UpdateUserRoles(ctx context.Context, orgID, userID string, roleIDs []string) error {
-	token, _, err := a.AuthenticateM2M(ctx)
-	if err != nil {
-		return err
+	if orgID == "" {
+		return &ValidationError{Field: "orgID", Message: "cannot be empty"}
+	}
+	if userID == "" {
+		return &ValidationError{Field: "userID", Message: "cannot be empty"}
 	}
 
-	apiURL := fmt.Sprintf("%s/api/organizations/%s/users/%s/roles", a.endpoint, orgID, userID)
-
-	payload := map[string]interface{}{
-		"organizationRoleIds": roleIDs,
-	}
-
-	jsonData, _ := json.Marshal(payload)
-
-	req, err := http.NewRequestWithContext(ctx, "PUT", apiURL, bytes.NewReader(jsonData))
-	if err != nil {
-		return err
-	}
-
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := a.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("update user roles request failed: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("update user roles failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	return nil
+	return a.doNoContent(ctx, requestConfig{
+		method:      http.MethodPut,
+		path:        "/api/organizations/%s/users/%s/roles",
+		pathParams:  []string{orgID, userID},
+		body:        map[string][]string{"organizationRoleIds": roleIDs},
+		expectCodes: []int{http.StatusOK, http.StatusNoContent},
+	})
 }
 
 // GetUserRolesInOrganization gets a user's roles in an organization
 func (a *Adapter) GetUserRolesInOrganization(ctx context.Context, orgID, userID string) ([]OrganizationRole, error) {
-	token, _, err := a.AuthenticateM2M(ctx)
+	if orgID == "" {
+		return nil, &ValidationError{Field: "orgID", Message: "cannot be empty"}
+	}
+	if userID == "" {
+		return nil, &ValidationError{Field: "userID", Message: "cannot be empty"}
+	}
+
+	body, _, err := a.doRequest(ctx, requestConfig{
+		method:     http.MethodGet,
+		path:       "/api/organizations/%s/users/%s/roles",
+		pathParams: []string{orgID, userID},
+	})
 	if err != nil {
 		return nil, err
-	}
-
-	apiURL := fmt.Sprintf("%s/api/organizations/%s/users/%s/roles", a.endpoint, orgID, userID)
-
-	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
-
-	resp, err := a.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("get user roles request failed: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("get user roles failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
 	var rolesResp []struct {
@@ -765,33 +520,12 @@ func (a *Adapter) GetUserRolesInOrganization(ctx context.Context, orgID, userID 
 
 // ListOrganizationRoles lists all organization roles
 func (a *Adapter) ListOrganizationRoles(ctx context.Context) ([]OrganizationRole, error) {
-	token, _, err := a.AuthenticateM2M(ctx)
+	body, _, err := a.doRequest(ctx, requestConfig{
+		method: http.MethodGet,
+		path:   "/api/organization-roles",
+	})
 	if err != nil {
 		return nil, err
-	}
-
-	apiURL := fmt.Sprintf("%s/api/organization-roles", a.endpoint)
-
-	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
-
-	resp, err := a.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("list roles request failed: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("list roles failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
 	var rolesResp []struct {
@@ -818,37 +552,17 @@ func (a *Adapter) ListOrganizationRoles(ctx context.Context) ([]OrganizationRole
 
 // GetOrganizationRole retrieves a single organization role by ID
 func (a *Adapter) GetOrganizationRole(ctx context.Context, roleID string) (*OrganizationRole, error) {
-	token, _, err := a.AuthenticateM2M(ctx)
+	if roleID == "" {
+		return nil, &ValidationError{Field: "roleID", Message: "cannot be empty"}
+	}
+
+	body, _, err := a.doRequest(ctx, requestConfig{
+		method:     http.MethodGet,
+		path:       "/api/organization-roles/%s",
+		pathParams: []string{roleID},
+	})
 	if err != nil {
 		return nil, err
-	}
-
-	apiURL := fmt.Sprintf("%s/api/organization-roles/%s", a.endpoint, roleID)
-
-	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
-
-	resp, err := a.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("get organization role request failed: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	if resp.StatusCode == http.StatusNotFound {
-		return nil, &APIError{StatusCode: 404, Message: fmt.Sprintf("organization role not found: %s", roleID)}
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("get organization role failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
 	var roleResp struct {
@@ -885,12 +599,9 @@ func (a *Adapter) GetOrganizationRole(ctx context.Context, roleID string) (*Orga
 
 // CreateOrganizationRole creates a new organization role
 func (a *Adapter) CreateOrganizationRole(ctx context.Context, name, description string, scopeIDs []string) (string, error) {
-	token, _, err := a.AuthenticateM2M(ctx)
-	if err != nil {
-		return "", err
+	if name == "" {
+		return "", &ValidationError{Field: "name", Message: "cannot be empty"}
 	}
-
-	apiURL := fmt.Sprintf("%s/api/organization-roles", a.endpoint)
 
 	payload := map[string]interface{}{
 		"name":        name,
@@ -900,50 +611,28 @@ func (a *Adapter) CreateOrganizationRole(ctx context.Context, name, description 
 		payload["organizationScopeIds"] = scopeIDs
 	}
 
-	jsonData, _ := json.Marshal(payload)
-
-	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewReader(jsonData))
-	if err != nil {
-		return "", err
-	}
-
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := a.httpClient.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("create organization role request failed: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("create organization role failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	var roleResp struct {
+	var result struct {
 		ID string `json:"id"`
 	}
 
-	if err := json.Unmarshal(body, &roleResp); err != nil {
+	err := a.doJSON(ctx, requestConfig{
+		method:      http.MethodPost,
+		path:        "/api/organization-roles",
+		body:        payload,
+		expectCodes: []int{http.StatusCreated, http.StatusOK},
+	}, &result)
+	if err != nil {
 		return "", err
 	}
 
-	return roleResp.ID, nil
+	return result.ID, nil
 }
 
 // UpdateOrganizationRole updates an organization role
 func (a *Adapter) UpdateOrganizationRole(ctx context.Context, roleID, name, description string) error {
-	token, _, err := a.AuthenticateM2M(ctx)
-	if err != nil {
-		return err
+	if roleID == "" {
+		return &ValidationError{Field: "roleID", Message: "cannot be empty"}
 	}
-
-	apiURL := fmt.Sprintf("%s/api/organization-roles/%s", a.endpoint, roleID)
 
 	payload := make(map[string]interface{})
 	if name != "" {
@@ -953,89 +642,42 @@ func (a *Adapter) UpdateOrganizationRole(ctx context.Context, roleID, name, desc
 		payload["description"] = description
 	}
 
-	jsonData, _ := json.Marshal(payload)
-
-	req, err := http.NewRequestWithContext(ctx, "PATCH", apiURL, bytes.NewReader(jsonData))
-	if err != nil {
-		return err
-	}
-
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := a.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("update organization role request failed: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("update organization role failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	return nil
+	return a.doNoContent(ctx, requestConfig{
+		method:      http.MethodPatch,
+		path:        "/api/organization-roles/%s",
+		pathParams:  []string{roleID},
+		body:        payload,
+		expectCodes: []int{http.StatusOK},
+	})
 }
 
 // DeleteOrganizationRole deletes an organization role
 func (a *Adapter) DeleteOrganizationRole(ctx context.Context, roleID string) error {
-	token, _, err := a.AuthenticateM2M(ctx)
-	if err != nil {
-		return err
+	if roleID == "" {
+		return &ValidationError{Field: "roleID", Message: "cannot be empty"}
 	}
 
-	apiURL := fmt.Sprintf("%s/api/organization-roles/%s", a.endpoint, roleID)
-
-	req, err := http.NewRequestWithContext(ctx, "DELETE", apiURL, nil)
-	if err != nil {
-		return err
-	}
-
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
-
-	resp, err := a.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("delete organization role request failed: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("delete organization role failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	return nil
+	return a.doNoContent(ctx, requestConfig{
+		method:      http.MethodDelete,
+		path:        "/api/organization-roles/%s",
+		pathParams:  []string{roleID},
+		expectCodes: []int{http.StatusNoContent, http.StatusOK},
+	})
 }
 
 // GetOrganizationRoleScopes retrieves scopes assigned to an organization role
 func (a *Adapter) GetOrganizationRoleScopes(ctx context.Context, roleID string) ([]OrganizationScope, error) {
-	token, _, err := a.AuthenticateM2M(ctx)
+	if roleID == "" {
+		return nil, &ValidationError{Field: "roleID", Message: "cannot be empty"}
+	}
+
+	body, _, err := a.doRequest(ctx, requestConfig{
+		method:     http.MethodGet,
+		path:       "/api/organization-roles/%s/scopes",
+		pathParams: []string{roleID},
+	})
 	if err != nil {
 		return nil, err
-	}
-
-	apiURL := fmt.Sprintf("%s/api/organization-roles/%s/scopes", a.endpoint, roleID)
-
-	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
-
-	resp, err := a.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("get organization role scopes request failed: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("get organization role scopes failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
 	var scopesResp []struct {
@@ -1062,271 +704,114 @@ func (a *Adapter) GetOrganizationRoleScopes(ctx context.Context, roleID string) 
 
 // SetOrganizationRoleScopes replaces all scopes for an organization role
 func (a *Adapter) SetOrganizationRoleScopes(ctx context.Context, roleID string, scopeIDs []string) error {
-	token, _, err := a.AuthenticateM2M(ctx)
-	if err != nil {
-		return err
+	if roleID == "" {
+		return &ValidationError{Field: "roleID", Message: "cannot be empty"}
 	}
 
-	apiURL := fmt.Sprintf("%s/api/organization-roles/%s/scopes", a.endpoint, roleID)
-
-	payload := map[string]interface{}{
-		"organizationScopeIds": scopeIDs,
-	}
-
-	jsonData, _ := json.Marshal(payload)
-
-	req, err := http.NewRequestWithContext(ctx, "PUT", apiURL, bytes.NewReader(jsonData))
-	if err != nil {
-		return err
-	}
-
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := a.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("set organization role scopes request failed: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("set organization role scopes failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	return nil
+	return a.doNoContent(ctx, requestConfig{
+		method:      http.MethodPut,
+		path:        "/api/organization-roles/%s/scopes",
+		pathParams:  []string{roleID},
+		body:        map[string][]string{"organizationScopeIds": scopeIDs},
+		expectCodes: []int{http.StatusOK, http.StatusNoContent},
+	})
 }
 
 // AddOrganizationRoleScopes adds scopes to an organization role
 func (a *Adapter) AddOrganizationRoleScopes(ctx context.Context, roleID string, scopeIDs []string) error {
-	token, _, err := a.AuthenticateM2M(ctx)
-	if err != nil {
-		return err
+	if roleID == "" {
+		return &ValidationError{Field: "roleID", Message: "cannot be empty"}
 	}
 
-	apiURL := fmt.Sprintf("%s/api/organization-roles/%s/scopes", a.endpoint, roleID)
-
-	payload := map[string]interface{}{
-		"organizationScopeIds": scopeIDs,
-	}
-
-	jsonData, _ := json.Marshal(payload)
-
-	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewReader(jsonData))
-	if err != nil {
-		return err
-	}
-
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := a.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("add organization role scopes request failed: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("add organization role scopes failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	return nil
+	return a.doNoContent(ctx, requestConfig{
+		method:      http.MethodPost,
+		path:        "/api/organization-roles/%s/scopes",
+		pathParams:  []string{roleID},
+		body:        map[string][]string{"organizationScopeIds": scopeIDs},
+		expectCodes: []int{http.StatusCreated, http.StatusOK, http.StatusNoContent},
+	})
 }
 
 // RemoveOrganizationRoleScope removes a scope from an organization role
 func (a *Adapter) RemoveOrganizationRoleScope(ctx context.Context, roleID, scopeID string) error {
-	token, _, err := a.AuthenticateM2M(ctx)
-	if err != nil {
-		return err
+	if roleID == "" {
+		return &ValidationError{Field: "roleID", Message: "cannot be empty"}
+	}
+	if scopeID == "" {
+		return &ValidationError{Field: "scopeID", Message: "cannot be empty"}
 	}
 
-	apiURL := fmt.Sprintf("%s/api/organization-roles/%s/scopes/%s", a.endpoint, roleID, scopeID)
-
-	req, err := http.NewRequestWithContext(ctx, "DELETE", apiURL, nil)
-	if err != nil {
-		return err
-	}
-
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
-
-	resp, err := a.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("remove organization role scope request failed: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("remove organization role scope failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	return nil
+	return a.doNoContent(ctx, requestConfig{
+		method:      http.MethodDelete,
+		path:        "/api/organization-roles/%s/scopes/%s",
+		pathParams:  []string{roleID, scopeID},
+		expectCodes: []int{http.StatusNoContent, http.StatusOK},
+	})
 }
 
 // GetOrganizationScope retrieves a single organization scope by ID
 func (a *Adapter) GetOrganizationScope(ctx context.Context, scopeID string) (*OrganizationScope, error) {
-	token, _, err := a.AuthenticateM2M(ctx)
+	if scopeID == "" {
+		return nil, &ValidationError{Field: "scopeID", Message: "cannot be empty"}
+	}
+
+	var result OrganizationScope
+	err := a.doJSON(ctx, requestConfig{
+		method:     http.MethodGet,
+		path:       "/api/organization-scopes/%s",
+		pathParams: []string{scopeID},
+	}, &result)
 	if err != nil {
 		return nil, err
 	}
 
-	apiURL := fmt.Sprintf("%s/api/organization-scopes/%s", a.endpoint, scopeID)
-
-	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
-
-	resp, err := a.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("get organization scope request failed: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	if resp.StatusCode == http.StatusNotFound {
-		return nil, &APIError{StatusCode: 404, Message: fmt.Sprintf("organization scope not found: %s", scopeID)}
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("get organization scope failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	var scopeResp struct {
-		ID          string `json:"id"`
-		Name        string `json:"name"`
-		Description string `json:"description"`
-	}
-
-	if err := json.Unmarshal(body, &scopeResp); err != nil {
-		return nil, err
-	}
-
-	return &OrganizationScope{
-		ID:          scopeResp.ID,
-		Name:        scopeResp.Name,
-		Description: scopeResp.Description,
-	}, nil
+	return &result, nil
 }
 
 // ListOrganizationScopes lists all organization scopes
 func (a *Adapter) ListOrganizationScopes(ctx context.Context) ([]OrganizationScope, error) {
-	token, _, err := a.AuthenticateM2M(ctx)
+	var result []OrganizationScope
+	err := a.doJSON(ctx, requestConfig{
+		method: http.MethodGet,
+		path:   "/api/organization-scopes",
+	}, &result)
 	if err != nil {
 		return nil, err
 	}
 
-	apiURL := fmt.Sprintf("%s/api/organization-scopes", a.endpoint)
-
-	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
-
-	resp, err := a.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("list organization scopes request failed: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("list organization scopes failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	var scopesResp []struct {
-		ID          string `json:"id"`
-		Name        string `json:"name"`
-		Description string `json:"description"`
-	}
-
-	if err := json.Unmarshal(body, &scopesResp); err != nil {
-		return nil, err
-	}
-
-	scopes := make([]OrganizationScope, len(scopesResp))
-	for i, s := range scopesResp {
-		scopes[i] = OrganizationScope{
-			ID:          s.ID,
-			Name:        s.Name,
-			Description: s.Description,
-		}
-	}
-
-	return scopes, nil
+	return result, nil
 }
 
 // CreateOrganizationScope creates a new organization scope
 func (a *Adapter) CreateOrganizationScope(ctx context.Context, name, description string) (string, error) {
-	token, _, err := a.AuthenticateM2M(ctx)
-	if err != nil {
-		return "", err
+	if name == "" {
+		return "", &ValidationError{Field: "name", Message: "cannot be empty"}
 	}
 
-	apiURL := fmt.Sprintf("%s/api/organization-scopes", a.endpoint)
-
-	payload := map[string]interface{}{
-		"name":        name,
-		"description": description,
-	}
-
-	jsonData, _ := json.Marshal(payload)
-
-	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewReader(jsonData))
-	if err != nil {
-		return "", err
-	}
-
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := a.httpClient.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("create organization scope request failed: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("create organization scope failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	var scopeResp struct {
+	var result struct {
 		ID string `json:"id"`
 	}
-
-	if err := json.Unmarshal(body, &scopeResp); err != nil {
+	err := a.doJSON(ctx, requestConfig{
+		method: http.MethodPost,
+		path:   "/api/organization-scopes",
+		body: map[string]interface{}{
+			"name":        name,
+			"description": description,
+		},
+		expectCodes: []int{http.StatusCreated, http.StatusOK},
+	}, &result)
+	if err != nil {
 		return "", err
 	}
 
-	return scopeResp.ID, nil
+	return result.ID, nil
 }
 
 // UpdateOrganizationScope updates an organization scope
 func (a *Adapter) UpdateOrganizationScope(ctx context.Context, scopeID, name, description string) error {
-	token, _, err := a.AuthenticateM2M(ctx)
-	if err != nil {
-		return err
+	if scopeID == "" {
+		return &ValidationError{Field: "scopeID", Message: "cannot be empty"}
 	}
-
-	apiURL := fmt.Sprintf("%s/api/organization-scopes/%s", a.endpoint, scopeID)
 
 	payload := make(map[string]interface{})
 	if name != "" {
@@ -1336,127 +821,54 @@ func (a *Adapter) UpdateOrganizationScope(ctx context.Context, scopeID, name, de
 		payload["description"] = description
 	}
 
-	jsonData, _ := json.Marshal(payload)
-
-	req, err := http.NewRequestWithContext(ctx, "PATCH", apiURL, bytes.NewReader(jsonData))
-	if err != nil {
-		return err
-	}
-
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := a.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("update organization scope request failed: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("update organization scope failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	return nil
+	return a.doNoContent(ctx, requestConfig{
+		method:     http.MethodPatch,
+		path:       "/api/organization-scopes/%s",
+		pathParams: []string{scopeID},
+		body:       payload,
+	})
 }
 
 // DeleteOrganizationScope deletes an organization scope
 func (a *Adapter) DeleteOrganizationScope(ctx context.Context, scopeID string) error {
-	token, _, err := a.AuthenticateM2M(ctx)
-	if err != nil {
-		return err
+	if scopeID == "" {
+		return &ValidationError{Field: "scopeID", Message: "cannot be empty"}
 	}
 
-	apiURL := fmt.Sprintf("%s/api/organization-scopes/%s", a.endpoint, scopeID)
-
-	req, err := http.NewRequestWithContext(ctx, "DELETE", apiURL, nil)
-	if err != nil {
-		return err
-	}
-
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
-
-	resp, err := a.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("delete organization scope request failed: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("delete organization scope failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	return nil
+	return a.doNoContent(ctx, requestConfig{
+		method:      http.MethodDelete,
+		path:        "/api/organization-scopes/%s",
+		pathParams:  []string{scopeID},
+		expectCodes: []int{http.StatusNoContent, http.StatusOK},
+	})
 }
 
 // GetAPIResource retrieves a single API resource by ID
 func (a *Adapter) GetAPIResource(ctx context.Context, resourceID string) (*APIResource, error) {
-	token, _, err := a.AuthenticateM2M(ctx)
+	if resourceID == "" {
+		return nil, &ValidationError{Field: "resourceID", Message: "cannot be empty"}
+	}
+
+	body, _, err := a.doRequest(ctx, requestConfig{
+		method:     http.MethodGet,
+		path:       "/api/resources/%s",
+		pathParams: []string{resourceID},
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	apiURL := fmt.Sprintf("%s/api/resources/%s", a.endpoint, resourceID)
-
-	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
-
-	resp, err := a.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("get API resource request failed: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	if resp.StatusCode == http.StatusNotFound {
-		return nil, &APIError{StatusCode: 404, Message: fmt.Sprintf("API resource not found: %s", resourceID)}
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("get API resource failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	return a.parseAPIResourceResponse(body)
+	return parseAPIResourceResponse(body)
 }
 
 // ListAPIResources lists all API resources
 func (a *Adapter) ListAPIResources(ctx context.Context) ([]*APIResource, error) {
-	token, _, err := a.AuthenticateM2M(ctx)
+	body, _, err := a.doRequest(ctx, requestConfig{
+		method: http.MethodGet,
+		path:   "/api/resources",
+	})
 	if err != nil {
 		return nil, err
-	}
-
-	apiURL := fmt.Sprintf("%s/api/resources", a.endpoint)
-
-	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
-
-	resp, err := a.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("list API resources request failed: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("list API resources failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
 	var resourcesData []json.RawMessage
@@ -1466,7 +878,7 @@ func (a *Adapter) ListAPIResources(ctx context.Context) ([]*APIResource, error) 
 
 	resources := make([]*APIResource, 0, len(resourcesData))
 	for _, data := range resourcesData {
-		resource, err := a.parseAPIResourceResponse(data)
+		resource, err := parseAPIResourceResponse(data)
 		if err != nil {
 			continue
 		}
@@ -1478,62 +890,37 @@ func (a *Adapter) ListAPIResources(ctx context.Context) ([]*APIResource, error) 
 
 // CreateAPIResource creates a new API resource
 func (a *Adapter) CreateAPIResource(ctx context.Context, name, indicator string) (string, error) {
-	token, _, err := a.AuthenticateM2M(ctx)
-	if err != nil {
-		return "", err
+	if name == "" {
+		return "", &ValidationError{Field: "name", Message: "cannot be empty"}
+	}
+	if indicator == "" {
+		return "", &ValidationError{Field: "indicator", Message: "cannot be empty"}
 	}
 
-	apiURL := fmt.Sprintf("%s/api/resources", a.endpoint)
-
-	payload := map[string]interface{}{
-		"name":      name,
-		"indicator": indicator,
-	}
-
-	jsonData, _ := json.Marshal(payload)
-
-	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewReader(jsonData))
-	if err != nil {
-		return "", err
-	}
-
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := a.httpClient.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("create API resource request failed: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("create API resource failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	var resourceResp struct {
+	var result struct {
 		ID string `json:"id"`
 	}
-
-	if err := json.Unmarshal(body, &resourceResp); err != nil {
+	err := a.doJSON(ctx, requestConfig{
+		method: http.MethodPost,
+		path:   "/api/resources",
+		body: map[string]interface{}{
+			"name":      name,
+			"indicator": indicator,
+		},
+		expectCodes: []int{http.StatusCreated, http.StatusOK},
+	}, &result)
+	if err != nil {
 		return "", err
 	}
 
-	return resourceResp.ID, nil
+	return result.ID, nil
 }
 
 // UpdateAPIResource updates an API resource
 func (a *Adapter) UpdateAPIResource(ctx context.Context, resourceID, name string, accessTokenTTL *int) error {
-	token, _, err := a.AuthenticateM2M(ctx)
-	if err != nil {
-		return err
+	if resourceID == "" {
+		return &ValidationError{Field: "resourceID", Message: "cannot be empty"}
 	}
-
-	apiURL := fmt.Sprintf("%s/api/resources/%s", a.endpoint, resourceID)
 
 	payload := make(map[string]interface{})
 	if name != "" {
@@ -1543,58 +930,26 @@ func (a *Adapter) UpdateAPIResource(ctx context.Context, resourceID, name string
 		payload["accessTokenTtl"] = *accessTokenTTL
 	}
 
-	jsonData, _ := json.Marshal(payload)
-
-	req, err := http.NewRequestWithContext(ctx, "PATCH", apiURL, bytes.NewReader(jsonData))
-	if err != nil {
-		return err
-	}
-
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := a.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("update API resource request failed: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("update API resource failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	return nil
+	return a.doNoContent(ctx, requestConfig{
+		method:     http.MethodPatch,
+		path:       "/api/resources/%s",
+		pathParams: []string{resourceID},
+		body:       payload,
+	})
 }
 
 // DeleteAPIResource deletes an API resource
 func (a *Adapter) DeleteAPIResource(ctx context.Context, resourceID string) error {
-	token, _, err := a.AuthenticateM2M(ctx)
-	if err != nil {
-		return err
+	if resourceID == "" {
+		return &ValidationError{Field: "resourceID", Message: "cannot be empty"}
 	}
 
-	apiURL := fmt.Sprintf("%s/api/resources/%s", a.endpoint, resourceID)
-
-	req, err := http.NewRequestWithContext(ctx, "DELETE", apiURL, nil)
-	if err != nil {
-		return err
-	}
-
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
-
-	resp, err := a.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("delete API resource request failed: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("delete API resource failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	return nil
+	return a.doNoContent(ctx, requestConfig{
+		method:      http.MethodDelete,
+		path:        "/api/resources/%s",
+		pathParams:  []string{resourceID},
+		expectCodes: []int{http.StatusNoContent, http.StatusOK},
+	})
 }
 
 // GetAPIResourceScope retrieves a single scope for an API resource
@@ -1617,117 +972,60 @@ func (a *Adapter) GetAPIResourceScope(ctx context.Context, resourceID, scopeID s
 
 // ListAPIResourceScopes lists all scopes for an API resource
 func (a *Adapter) ListAPIResourceScopes(ctx context.Context, resourceID string) ([]*APIResourceScope, error) {
-	token, _, err := a.AuthenticateM2M(ctx)
+	if resourceID == "" {
+		return nil, &ValidationError{Field: "resourceID", Message: "cannot be empty"}
+	}
+
+	var result []*APIResourceScope
+	err := a.doJSON(ctx, requestConfig{
+		method:     http.MethodGet,
+		path:       "/api/resources/%s/scopes",
+		pathParams: []string{resourceID},
+	}, &result)
 	if err != nil {
 		return nil, err
 	}
 
-	apiURL := fmt.Sprintf("%s/api/resources/%s/scopes", a.endpoint, resourceID)
-
-	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
-
-	resp, err := a.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("list API resource scopes request failed: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("list API resource scopes failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	var scopesResp []struct {
-		ID          string `json:"id"`
-		ResourceID  string `json:"resourceId"`
-		Name        string `json:"name"`
-		Description string `json:"description"`
-	}
-
-	if err := json.Unmarshal(body, &scopesResp); err != nil {
-		return nil, err
-	}
-
-	scopes := make([]*APIResourceScope, len(scopesResp))
-	for i, s := range scopesResp {
-		scopes[i] = &APIResourceScope{
-			ID:          s.ID,
-			ResourceID:  s.ResourceID,
-			Name:        s.Name,
-			Description: s.Description,
-		}
-	}
-
-	return scopes, nil
+	return result, nil
 }
 
 // CreateAPIResourceScope creates a new scope for an API resource
 func (a *Adapter) CreateAPIResourceScope(ctx context.Context, resourceID, name, description string) (string, error) {
-	token, _, err := a.AuthenticateM2M(ctx)
-	if err != nil {
-		return "", err
+	if resourceID == "" {
+		return "", &ValidationError{Field: "resourceID", Message: "cannot be empty"}
+	}
+	if name == "" {
+		return "", &ValidationError{Field: "name", Message: "cannot be empty"}
 	}
 
-	apiURL := fmt.Sprintf("%s/api/resources/%s/scopes", a.endpoint, resourceID)
-
-	payload := map[string]interface{}{
-		"name":        name,
-		"description": description,
-	}
-
-	jsonData, _ := json.Marshal(payload)
-
-	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewReader(jsonData))
-	if err != nil {
-		return "", err
-	}
-
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := a.httpClient.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("create API resource scope request failed: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("create API resource scope failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	var scopeResp struct {
+	var result struct {
 		ID string `json:"id"`
 	}
-
-	if err := json.Unmarshal(body, &scopeResp); err != nil {
+	err := a.doJSON(ctx, requestConfig{
+		method:     http.MethodPost,
+		path:       "/api/resources/%s/scopes",
+		pathParams: []string{resourceID},
+		body: map[string]interface{}{
+			"name":        name,
+			"description": description,
+		},
+		expectCodes: []int{http.StatusCreated, http.StatusOK},
+	}, &result)
+	if err != nil {
 		return "", err
 	}
 
-	return scopeResp.ID, nil
+	return result.ID, nil
 }
 
 // UpdateAPIResourceScope updates a scope for an API resource
 func (a *Adapter) UpdateAPIResourceScope(ctx context.Context, resourceID, scopeID, name, description string) error {
-	token, _, err := a.AuthenticateM2M(ctx)
-	if err != nil {
-		return err
+	if resourceID == "" {
+		return &ValidationError{Field: "resourceID", Message: "cannot be empty"}
 	}
-
-	apiURL := fmt.Sprintf("%s/api/resources/%s/scopes/%s", a.endpoint, resourceID, scopeID)
+	if scopeID == "" {
+		return &ValidationError{Field: "scopeID", Message: "cannot be empty"}
+	}
 
 	payload := make(map[string]interface{})
 	if name != "" {
@@ -1737,62 +1035,33 @@ func (a *Adapter) UpdateAPIResourceScope(ctx context.Context, resourceID, scopeI
 		payload["description"] = description
 	}
 
-	jsonData, _ := json.Marshal(payload)
-
-	req, err := http.NewRequestWithContext(ctx, "PATCH", apiURL, bytes.NewReader(jsonData))
-	if err != nil {
-		return err
-	}
-
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := a.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("update API resource scope request failed: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("update API resource scope failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	return nil
+	return a.doNoContent(ctx, requestConfig{
+		method:     http.MethodPatch,
+		path:       "/api/resources/%s/scopes/%s",
+		pathParams: []string{resourceID, scopeID},
+		body:       payload,
+	})
 }
 
 // DeleteAPIResourceScope deletes a scope from an API resource
 func (a *Adapter) DeleteAPIResourceScope(ctx context.Context, resourceID, scopeID string) error {
-	token, _, err := a.AuthenticateM2M(ctx)
-	if err != nil {
-		return err
+	if resourceID == "" {
+		return &ValidationError{Field: "resourceID", Message: "cannot be empty"}
+	}
+	if scopeID == "" {
+		return &ValidationError{Field: "scopeID", Message: "cannot be empty"}
 	}
 
-	apiURL := fmt.Sprintf("%s/api/resources/%s/scopes/%s", a.endpoint, resourceID, scopeID)
-
-	req, err := http.NewRequestWithContext(ctx, "DELETE", apiURL, nil)
-	if err != nil {
-		return err
-	}
-
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
-
-	resp, err := a.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("delete API resource scope request failed: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("delete API resource scope failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	return nil
+	return a.doNoContent(ctx, requestConfig{
+		method:      http.MethodDelete,
+		path:        "/api/resources/%s/scopes/%s",
+		pathParams:  []string{resourceID, scopeID},
+		expectCodes: []int{http.StatusNoContent, http.StatusOK},
+	})
 }
 
 // Helper function to parse API resource response
-func (a *Adapter) parseAPIResourceResponse(data []byte) (*APIResource, error) {
+func parseAPIResourceResponse(data []byte) (*APIResource, error) {
 	var resourceResp struct {
 		ID             string `json:"id"`
 		Name           string `json:"name"`
@@ -1816,12 +1085,12 @@ func (a *Adapter) parseAPIResourceResponse(data []byte) (*APIResource, error) {
 
 // CreateOrganizationInvitation creates an invitation for a user to join an organization
 func (a *Adapter) CreateOrganizationInvitation(ctx context.Context, orgID, inviterID, email string, roleIDs []string, expiresAtMs int64) (string, error) {
-	token, _, err := a.AuthenticateM2M(ctx)
-	if err != nil {
-		return "", err
+	if orgID == "" {
+		return "", &ValidationError{Field: "orgID", Message: "cannot be empty"}
 	}
-
-	apiURL := fmt.Sprintf("%s/api/organization-invitations", a.endpoint)
+	if email == "" {
+		return "", &ValidationError{Field: "email", Message: "cannot be empty"}
+	}
 
 	payload := map[string]interface{}{
 		"organizationId": orgID,
@@ -1838,50 +1107,27 @@ func (a *Adapter) CreateOrganizationInvitation(ctx context.Context, orgID, invit
 		payload["organizationRoleIds"] = roleIDs
 	}
 
-	jsonData, _ := json.Marshal(payload)
-
-	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewReader(jsonData))
-	if err != nil {
-		return "", err
-	}
-
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := a.httpClient.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("create invitation request failed: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("create invitation failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	var invitationResp struct {
+	var result struct {
 		ID string `json:"id"`
 	}
-
-	if err := json.Unmarshal(body, &invitationResp); err != nil {
+	err := a.doJSON(ctx, requestConfig{
+		method:      http.MethodPost,
+		path:        "/api/organization-invitations",
+		body:        payload,
+		expectCodes: []int{http.StatusCreated, http.StatusOK},
+	}, &result)
+	if err != nil {
 		return "", err
 	}
 
-	return invitationResp.ID, nil
+	return result.ID, nil
 }
 
 // UpdateUser updates user profile fields
 func (a *Adapter) UpdateUser(ctx context.Context, userID string, update UserUpdate) error {
-	token, _, err := a.AuthenticateM2M(ctx)
-	if err != nil {
-		return err
+	if userID == "" {
+		return &ValidationError{Field: "userID", Message: "cannot be empty"}
 	}
-
-	apiURL := fmt.Sprintf("%s/api/users/%s", a.endpoint, userID)
 
 	payload := make(map[string]interface{})
 	if update.Name != nil {
@@ -1891,96 +1137,43 @@ func (a *Adapter) UpdateUser(ctx context.Context, userID string, update UserUpda
 		payload["avatar"] = *update.Avatar
 	}
 
-	jsonData, _ := json.Marshal(payload)
-
-	req, err := http.NewRequestWithContext(ctx, "PATCH", apiURL, bytes.NewReader(jsonData))
-	if err != nil {
-		return err
-	}
-
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := a.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("update user request failed: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("update user failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	return nil
+	return a.doNoContent(ctx, requestConfig{
+		method:     http.MethodPatch,
+		path:       "/api/users/%s",
+		pathParams: []string{userID},
+		body:       payload,
+	})
 }
 
 // UpdateUserCustomData performs a partial update of user's customData (merge mode)
 func (a *Adapter) UpdateUserCustomData(ctx context.Context, userID string, customData map[string]interface{}) error {
-	token, _, err := a.AuthenticateM2M(ctx)
-	if err != nil {
-		return err
+	if userID == "" {
+		return &ValidationError{Field: "userID", Message: "cannot be empty"}
 	}
 
-	apiURL := fmt.Sprintf("%s/api/users/%s/custom-data", a.endpoint, userID)
-
-	payload := map[string]interface{}{
-		"customData": customData,
-	}
-
-	jsonData, _ := json.Marshal(payload)
-
-	req, err := http.NewRequestWithContext(ctx, "PATCH", apiURL, bytes.NewReader(jsonData))
-	if err != nil {
-		return err
-	}
-
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := a.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("update user custom data request failed: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("update user custom data failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	return nil
+	return a.doNoContent(ctx, requestConfig{
+		method:     http.MethodPatch,
+		path:       "/api/users/%s/custom-data",
+		pathParams: []string{userID},
+		body: map[string]interface{}{
+			"customData": customData,
+		},
+	})
 }
 
 // ListOrganizationInvitations lists invitations for an organization
 func (a *Adapter) ListOrganizationInvitations(ctx context.Context, orgID string) ([]*OrganizationInvitation, error) {
-	token, _, err := a.AuthenticateM2M(ctx)
+	if orgID == "" {
+		return nil, &ValidationError{Field: "orgID", Message: "cannot be empty"}
+	}
+
+	body, _, err := a.doRequest(ctx, requestConfig{
+		method: http.MethodGet,
+		path:   "/api/organization-invitations",
+		query:  url.Values{"organizationId": {orgID}},
+	})
 	if err != nil {
 		return nil, err
-	}
-
-	apiURL := fmt.Sprintf("%s/api/organization-invitations?organizationId=%s", a.endpoint, url.QueryEscape(orgID))
-
-	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
-
-	resp, err := a.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("list invitations request failed: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("list invitations failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
 	var invitationsData []json.RawMessage
@@ -1990,7 +1183,7 @@ func (a *Adapter) ListOrganizationInvitations(ctx context.Context, orgID string)
 
 	invitations := make([]*OrganizationInvitation, 0, len(invitationsData))
 	for _, data := range invitationsData {
-		inv, err := a.parseInvitationResponse(data)
+		inv, err := parseInvitationResponse(data)
 		if err != nil {
 			continue
 		}
@@ -2002,118 +1195,58 @@ func (a *Adapter) ListOrganizationInvitations(ctx context.Context, orgID string)
 
 // GetOrganizationInvitation retrieves a single invitation by ID
 func (a *Adapter) GetOrganizationInvitation(ctx context.Context, invitationID string) (*OrganizationInvitation, error) {
-	token, _, err := a.AuthenticateM2M(ctx)
+	if invitationID == "" {
+		return nil, &ValidationError{Field: "invitationID", Message: "cannot be empty"}
+	}
+
+	body, _, err := a.doRequest(ctx, requestConfig{
+		method:     http.MethodGet,
+		path:       "/api/organization-invitations/%s",
+		pathParams: []string{invitationID},
+	})
 	if err != nil {
 		return nil, err
 	}
 
-	apiURL := fmt.Sprintf("%s/api/organization-invitations/%s", a.endpoint, invitationID)
-
-	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
-
-	resp, err := a.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("get invitation request failed: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	if resp.StatusCode == http.StatusNotFound {
-		return nil, &APIError{StatusCode: 404, Message: fmt.Sprintf("invitation not found: %s", invitationID)}
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("get invitation failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	return a.parseInvitationResponse(body)
+	return parseInvitationResponse(body)
 }
 
 // DeleteOrganizationInvitation deletes an invitation
 func (a *Adapter) DeleteOrganizationInvitation(ctx context.Context, invitationID string) error {
-	token, _, err := a.AuthenticateM2M(ctx)
-	if err != nil {
-		return err
+	if invitationID == "" {
+		return &ValidationError{Field: "invitationID", Message: "cannot be empty"}
 	}
 
-	apiURL := fmt.Sprintf("%s/api/organization-invitations/%s", a.endpoint, invitationID)
-
-	req, err := http.NewRequestWithContext(ctx, "DELETE", apiURL, nil)
-	if err != nil {
-		return err
-	}
-
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
-
-	resp, err := a.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("delete invitation request failed: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("delete invitation failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	return nil
+	return a.doNoContent(ctx, requestConfig{
+		method:      http.MethodDelete,
+		path:        "/api/organization-invitations/%s",
+		pathParams:  []string{invitationID},
+		expectCodes: []int{http.StatusNoContent, http.StatusOK},
+	})
 }
 
 // SendInvitationMessage sends the invitation email with a magic link
 func (a *Adapter) SendInvitationMessage(ctx context.Context, invitationID, magicLink string) error {
-	token, _, err := a.AuthenticateM2M(ctx)
-	if err != nil {
-		return err
+	if invitationID == "" {
+		return &ValidationError{Field: "invitationID", Message: "cannot be empty"}
 	}
 
-	apiURL := fmt.Sprintf("%s/api/organization-invitations/%s/message", a.endpoint, invitationID)
-
-	// Send with magic link - Logto email template will use {{link}} variable
-	payload := map[string]interface{}{
-		"link": magicLink,
-	}
-
-	jsonData, _ := json.Marshal(payload)
-
-	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewReader(jsonData))
-	if err != nil {
-		return err
-	}
-
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := a.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("send invitation message request failed: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("send invitation message failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	return nil
+	return a.doNoContent(ctx, requestConfig{
+		method:     http.MethodPost,
+		path:       "/api/organization-invitations/%s/message",
+		pathParams: []string{invitationID},
+		body: map[string]interface{}{
+			"link": magicLink,
+		},
+		expectCodes: []int{http.StatusNoContent, http.StatusOK},
+	})
 }
 
 // CreateOneTimeToken creates a one-time token for magic link authentication
 func (a *Adapter) CreateOneTimeToken(ctx context.Context, email string, expiresIn int, jitOrgIDs []string) (*OneTimeTokenResult, error) {
-	token, _, err := a.AuthenticateM2M(ctx)
-	if err != nil {
-		return nil, err
+	if email == "" {
+		return nil, &ValidationError{Field: "email", Message: "cannot be empty"}
 	}
-
-	apiURL := fmt.Sprintf("%s/api/one-time-tokens", a.endpoint)
 
 	payload := map[string]interface{}{
 		"email":     email,
@@ -2126,49 +1259,29 @@ func (a *Adapter) CreateOneTimeToken(ctx context.Context, email string, expiresI
 		}
 	}
 
-	jsonData, _ := json.Marshal(payload)
-
-	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewReader(jsonData))
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := a.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("create one-time token request failed: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("create one-time token failed with status %d: %s", resp.StatusCode, string(body))
-	}
-
-	var tokenResp struct {
+	var result struct {
 		Token     string `json:"token"`
-		ExpiresAt int64  `json:"expiresAt"` // Unix timestamp in seconds
+		ExpiresAt int64  `json:"expiresAt"`
 	}
-
-	if err := json.Unmarshal(body, &tokenResp); err != nil {
+	err := a.doJSON(ctx, requestConfig{
+		method:      http.MethodPost,
+		path:        "/api/one-time-tokens",
+		body:        payload,
+		expectCodes: []int{http.StatusCreated, http.StatusOK},
+	}, &result)
+	if err != nil {
 		return nil, err
 	}
 
 	return &OneTimeTokenResult{
-		Token:     tokenResp.Token,
-		ExpiresAt: tokenResp.ExpiresAt,
+		Token:     result.Token,
+		ExpiresAt: result.ExpiresAt,
 	}, nil
 }
 
 // Helper functions
 
-func (a *Adapter) parseUserResponse(data []byte) (*User, error) {
+func parseUserResponse(data []byte) (*User, error) {
 	var userResp struct {
 		ID           string                 `json:"id"`
 		Name         string                 `json:"name"`
@@ -2207,7 +1320,7 @@ func (a *Adapter) parseUserResponse(data []byte) (*User, error) {
 	}, nil
 }
 
-func (a *Adapter) parseOrganizationResponse(data []byte) (*Organization, error) {
+func parseOrganizationResponse(data []byte) (*Organization, error) {
 	var orgResp struct {
 		ID          string                 `json:"id"`
 		Name        string                 `json:"name"`
@@ -2234,7 +1347,7 @@ func (a *Adapter) parseOrganizationResponse(data []byte) (*Organization, error) 
 	}, nil
 }
 
-func (a *Adapter) parseInvitationResponse(data []byte) (*OrganizationInvitation, error) {
+func parseInvitationResponse(data []byte) (*OrganizationInvitation, error) {
 	var invResp struct {
 		ID                string `json:"id"`
 		InviterID         string `json:"inviterId"`
@@ -2280,33 +1393,16 @@ func (a *Adapter) parseInvitationResponse(data []byte) (*OrganizationInvitation,
 // Paginated list methods for iterators
 
 func (a *Adapter) listUsersPaginated(ctx context.Context, page, pageSize int) ([]*User, error) {
-	token, _, err := a.AuthenticateM2M(ctx)
+	body, _, err := a.doRequest(ctx, requestConfig{
+		method: http.MethodGet,
+		path:   "/api/users",
+		query: url.Values{
+			"page":      {fmt.Sprintf("%d", page)},
+			"page_size": {fmt.Sprintf("%d", pageSize)},
+		},
+	})
 	if err != nil {
 		return nil, err
-	}
-
-	apiURL := fmt.Sprintf("%s/api/users?page=%d&page_size=%d", a.endpoint, page, pageSize)
-
-	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
-
-	resp, err := a.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("list users request failed: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, newAPIError(resp.StatusCode, body)
 	}
 
 	var usersData []json.RawMessage
@@ -2316,7 +1412,7 @@ func (a *Adapter) listUsersPaginated(ctx context.Context, page, pageSize int) ([
 
 	users := make([]*User, 0, len(usersData))
 	for _, userData := range usersData {
-		user, err := a.parseUserResponse(userData)
+		user, err := parseUserResponse(userData)
 		if err != nil {
 			continue
 		}
@@ -2327,33 +1423,16 @@ func (a *Adapter) listUsersPaginated(ctx context.Context, page, pageSize int) ([
 }
 
 func (a *Adapter) listOrganizationsPaginated(ctx context.Context, page, pageSize int) ([]*Organization, error) {
-	token, _, err := a.AuthenticateM2M(ctx)
+	body, _, err := a.doRequest(ctx, requestConfig{
+		method: http.MethodGet,
+		path:   "/api/organizations",
+		query: url.Values{
+			"page":      {fmt.Sprintf("%d", page)},
+			"page_size": {fmt.Sprintf("%d", pageSize)},
+		},
+	})
 	if err != nil {
 		return nil, err
-	}
-
-	apiURL := fmt.Sprintf("%s/api/organizations?page=%d&page_size=%d", a.endpoint, page, pageSize)
-
-	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
-
-	resp, err := a.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("list organizations request failed: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, newAPIError(resp.StatusCode, body)
 	}
 
 	var orgsData []json.RawMessage
@@ -2363,7 +1442,7 @@ func (a *Adapter) listOrganizationsPaginated(ctx context.Context, page, pageSize
 
 	orgs := make([]*Organization, 0, len(orgsData))
 	for _, orgData := range orgsData {
-		org, err := a.parseOrganizationResponse(orgData)
+		org, err := parseOrganizationResponse(orgData)
 		if err != nil {
 			continue
 		}
@@ -2374,34 +1453,17 @@ func (a *Adapter) listOrganizationsPaginated(ctx context.Context, page, pageSize
 }
 
 func (a *Adapter) listInvitationsPaginated(ctx context.Context, orgID string, page, pageSize int) ([]*OrganizationInvitation, error) {
-	token, _, err := a.AuthenticateM2M(ctx)
+	body, _, err := a.doRequest(ctx, requestConfig{
+		method: http.MethodGet,
+		path:   "/api/organization-invitations",
+		query: url.Values{
+			"organizationId": {orgID},
+			"page":           {fmt.Sprintf("%d", page)},
+			"page_size":      {fmt.Sprintf("%d", pageSize)},
+		},
+	})
 	if err != nil {
 		return nil, err
-	}
-
-	apiURL := fmt.Sprintf("%s/api/organization-invitations?organizationId=%s&page=%d&page_size=%d",
-		a.endpoint, url.QueryEscape(orgID), page, pageSize)
-
-	req, err := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", token))
-
-	resp, err := a.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("list invitations request failed: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, newAPIError(resp.StatusCode, body)
 	}
 
 	var invitationsData []json.RawMessage
@@ -2411,7 +1473,7 @@ func (a *Adapter) listInvitationsPaginated(ctx context.Context, orgID string, pa
 
 	invitations := make([]*OrganizationInvitation, 0, len(invitationsData))
 	for _, data := range invitationsData {
-		inv, err := a.parseInvitationResponse(data)
+		inv, err := parseInvitationResponse(data)
 		if err != nil {
 			continue
 		}
