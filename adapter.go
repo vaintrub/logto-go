@@ -232,6 +232,37 @@ func (a *Adapter) ListUsers(ctx context.Context) ([]*User, error) {
 	return users, nil
 }
 
+// CreateUser creates a new user in Logto
+func (a *Adapter) CreateUser(ctx context.Context, username, password, name, primaryEmail string) (string, error) {
+	if username == "" {
+		return "", &ValidationError{Field: "username", Message: "cannot be empty"}
+	}
+	if password == "" {
+		return "", &ValidationError{Field: "password", Message: "cannot be empty"}
+	}
+
+	var result struct {
+		ID string `json:"id"`
+	}
+
+	err := a.doJSON(ctx, requestConfig{
+		method: http.MethodPost,
+		path:   "/api/users",
+		body: map[string]interface{}{
+			"username":     username,
+			"password":     password,
+			"name":         name,
+			"primaryEmail": primaryEmail,
+		},
+		expectCodes: []int{http.StatusCreated, http.StatusOK},
+	}, &result)
+	if err != nil {
+		return "", err
+	}
+
+	return result.ID, nil
+}
+
 // GetOrganization retrieves organization details
 func (a *Adapter) GetOrganization(ctx context.Context, orgID string) (*Organization, error) {
 	if orgID == "" {
@@ -749,6 +780,21 @@ func (a *Adapter) RemoveOrganizationRoleScope(ctx context.Context, roleID, scope
 	})
 }
 
+// AssignResourceScopesToOrganizationRole assigns API resource scopes to an organization role
+func (a *Adapter) AssignResourceScopesToOrganizationRole(ctx context.Context, roleID string, scopeIDs []string) error {
+	if roleID == "" {
+		return &ValidationError{Field: "roleID", Message: "cannot be empty"}
+	}
+
+	return a.doNoContent(ctx, requestConfig{
+		method:      http.MethodPost,
+		path:        "/api/organization-roles/%s/resource-scopes",
+		pathParams:  []string{roleID},
+		body:        map[string][]string{"scopeIds": scopeIDs},
+		expectCodes: []int{http.StatusCreated, http.StatusOK, http.StatusNoContent},
+	})
+}
+
 // GetOrganizationScope retrieves a single organization scope by ID
 func (a *Adapter) GetOrganizationScope(ctx context.Context, scopeID string) (*OrganizationScope, error) {
 	if scopeID == "" {
@@ -1058,6 +1104,72 @@ func (a *Adapter) DeleteAPIResourceScope(ctx context.Context, resourceID, scopeI
 		pathParams:  []string{resourceID, scopeID},
 		expectCodes: []int{http.StatusNoContent, http.StatusOK},
 	})
+}
+
+// ListApplications retrieves all applications
+func (a *Adapter) ListApplications(ctx context.Context) ([]*Application, error) {
+	body, _, err := a.doRequest(ctx, requestConfig{
+		method: http.MethodGet,
+		path:   "/api/applications",
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	var appsData []json.RawMessage
+	if err := json.Unmarshal(body, &appsData); err != nil {
+		return nil, err
+	}
+
+	apps := make([]*Application, 0, len(appsData))
+	for _, appData := range appsData {
+		app, err := parseApplicationResponse(appData)
+		if err != nil {
+			continue
+		}
+		apps = append(apps, app)
+	}
+
+	return apps, nil
+}
+
+// CreateApplication creates a new application in Logto
+func (a *Adapter) CreateApplication(ctx context.Context, app ApplicationCreate) (string, error) {
+	if app.Name == "" {
+		return "", &ValidationError{Field: "name", Message: "cannot be empty"}
+	}
+	if app.Type == "" {
+		return "", &ValidationError{Field: "type", Message: "cannot be empty"}
+	}
+
+	payload := map[string]interface{}{
+		"name": app.Name,
+		"type": app.Type,
+	}
+	if app.Description != "" {
+		payload["description"] = app.Description
+	}
+	if len(app.RedirectURIs) > 0 {
+		payload["oidcClientMetadata"] = map[string]interface{}{
+			"redirectUris": app.RedirectURIs,
+		}
+	}
+
+	var result struct {
+		ID string `json:"id"`
+	}
+
+	err := a.doJSON(ctx, requestConfig{
+		method:      http.MethodPost,
+		path:        "/api/applications",
+		body:        payload,
+		expectCodes: []int{http.StatusCreated, http.StatusOK},
+	}, &result)
+	if err != nil {
+		return "", err
+	}
+
+	return result.ID, nil
 }
 
 // Helper function to parse API resource response
@@ -1387,6 +1499,45 @@ func parseInvitationResponse(data []byte) (*OrganizationInvitation, error) {
 		ExpiresAt:      time.UnixMilli(invResp.ExpiresAt),
 		CreatedAt:      time.UnixMilli(invResp.CreatedAt),
 		UpdatedAt:      time.UnixMilli(invResp.UpdatedAt),
+	}, nil
+}
+
+func parseApplicationResponse(data []byte) (*Application, error) {
+	var appResp struct {
+		ID                 string                 `json:"id"`
+		Name               string                 `json:"name"`
+		Description        string                 `json:"description"`
+		Type               string                 `json:"type"`
+		Secret             string                 `json:"secret"`
+		IsThirdParty       bool                   `json:"isThirdParty"`
+		OidcClientMetadata struct {
+			RedirectUris           []string `json:"redirectUris"`
+			PostLogoutRedirectUris []string `json:"postLogoutRedirectUris"`
+		} `json:"oidcClientMetadata"`
+		CustomData map[string]interface{} `json:"customData"`
+		CreatedAt  int64                  `json:"createdAt"`
+	}
+
+	if err := json.Unmarshal(data, &appResp); err != nil {
+		return nil, err
+	}
+
+	customData := appResp.CustomData
+	if customData == nil {
+		customData = make(map[string]interface{})
+	}
+
+	return &Application{
+		ID:                     appResp.ID,
+		Name:                   appResp.Name,
+		Description:            appResp.Description,
+		Type:                   ApplicationType(appResp.Type),
+		Secret:                 appResp.Secret,
+		IsThirdParty:           appResp.IsThirdParty,
+		RedirectURIs:           appResp.OidcClientMetadata.RedirectUris,
+		PostLogoutRedirectURIs: appResp.OidcClientMetadata.PostLogoutRedirectUris,
+		CustomData:             customData,
+		CreatedAt:              time.UnixMilli(appResp.CreatedAt),
 	}, nil
 }
 

@@ -15,10 +15,11 @@ type Client interface {
 	// M2M Auth
 	AuthenticateM2M(ctx context.Context) (accessToken string, expiresIn int, err error)
 
-	// Users (GET /users, GET /users/{userId}, PATCH /users/{userId})
+	// Users (GET /users, GET /users/{userId}, POST /users, PATCH /users/{userId})
 	GetUser(ctx context.Context, userID string) (*User, error)
 	GetUserByEmail(ctx context.Context, email string) (*User, error)
 	ListUsers(ctx context.Context) ([]*User, error)
+	CreateUser(ctx context.Context, username, password, name, primaryEmail string) (userID string, err error)
 	UpdateUser(ctx context.Context, userID string, update UserUpdate) error
 	UpdateUserCustomData(ctx context.Context, userID string, customData map[string]interface{}) error
 
@@ -50,6 +51,9 @@ type Client interface {
 	AddOrganizationRoleScopes(ctx context.Context, roleID string, scopeIDs []string) error
 	RemoveOrganizationRoleScope(ctx context.Context, roleID, scopeID string) error
 
+	// Organization Role Resource Scopes (POST /organization-roles/{id}/resource-scopes)
+	AssignResourceScopesToOrganizationRole(ctx context.Context, roleID string, scopeIDs []string) error
+
 	// Organization Scopes (GET/POST/PATCH/DELETE /organization-scopes)
 	GetOrganizationScope(ctx context.Context, scopeID string) (*OrganizationScope, error)
 	ListOrganizationScopes(ctx context.Context) ([]OrganizationScope, error)
@@ -70,6 +74,10 @@ type Client interface {
 	CreateAPIResourceScope(ctx context.Context, resourceID, name, description string) (scopeID string, err error)
 	UpdateAPIResourceScope(ctx context.Context, resourceID, scopeID, name, description string) error
 	DeleteAPIResourceScope(ctx context.Context, resourceID, scopeID string) error
+
+	// Applications (GET/POST /applications)
+	ListApplications(ctx context.Context) ([]*Application, error)
+	CreateApplication(ctx context.Context, app ApplicationCreate) (appID string, err error)
 
 	// Invitations (GET/POST/DELETE /organization-invitations)
 	CreateOrganizationInvitation(ctx context.Context, orgID, inviterID, email string, roleIDs []string, expiresAtMs int64) (invitationID string, err error)
@@ -171,4 +179,36 @@ type m2mTokenCache struct {
 type OneTimeTokenResult struct {
 	Token     string
 	ExpiresAt int64 // Unix timestamp (seconds)
+}
+
+// ApplicationType represents the type of Logto application
+type ApplicationType string
+
+const (
+	ApplicationTypeNative           ApplicationType = "Native"
+	ApplicationTypeSPA              ApplicationType = "SPA"
+	ApplicationTypeTraditional      ApplicationType = "Traditional"
+	ApplicationTypeMachineToMachine ApplicationType = "MachineToMachine"
+)
+
+// Application represents a Logto application
+type Application struct {
+	ID                     string
+	Name                   string
+	Description            string
+	Type                   ApplicationType
+	Secret                 string
+	IsThirdParty           bool
+	RedirectURIs           []string
+	PostLogoutRedirectURIs []string
+	CustomData             map[string]interface{}
+	CreatedAt              time.Time
+}
+
+// ApplicationCreate represents fields for creating an application
+type ApplicationCreate struct {
+	Name         string
+	Type         ApplicationType
+	Description  string
+	RedirectURIs []string
 }
