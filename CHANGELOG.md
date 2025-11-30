@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.2](https://github.com/vaintrub/logto-go/compare/v1.0.1...v1.0.2) (2025-11-30)
+
+
+### Bug Fixes
+
+* added primaryEmail & redirects to app ([ab575ce](https://github.com/vaintrub/logto-go/commit/ab575ce918a9b0223c775a34b2cb5a822941e729))
+
 ## [1.0.1](https://github.com/vaintrub/logto-go/compare/v1.0.0...v1.0.1) (2025-11-30)
 
 
