@@ -245,15 +245,19 @@ func (a *Adapter) CreateUser(ctx context.Context, username, password, name, prim
 		ID string `json:"id"`
 	}
 
+	payload := map[string]interface{}{
+		"username": username,
+		"password": password,
+		"name":     name,
+	}
+	if primaryEmail != "" {
+		payload["primaryEmail"] = primaryEmail
+	}
+
 	err := a.doJSON(ctx, requestConfig{
-		method: http.MethodPost,
-		path:   "/api/users",
-		body: map[string]interface{}{
-			"username":     username,
-			"password":     password,
-			"name":         name,
-			"primaryEmail": primaryEmail,
-		},
+		method:      http.MethodPost,
+		path:        "/api/users",
+		body:        payload,
 		expectCodes: []int{http.StatusCreated, http.StatusOK},
 	}, &result)
 	if err != nil {
@@ -1149,11 +1153,14 @@ func (a *Adapter) CreateApplication(ctx context.Context, app ApplicationCreate) 
 	if app.Description != "" {
 		payload["description"] = app.Description
 	}
-	if len(app.RedirectURIs) > 0 {
-		payload["oidcClientMetadata"] = map[string]interface{}{
-			"redirectUris": app.RedirectURIs,
-		}
+
+	oidcMetadata := map[string]interface{}{
+		"postLogoutRedirectUris": []string{},
 	}
+	if len(app.RedirectURIs) > 0 {
+		oidcMetadata["redirectUris"] = app.RedirectURIs
+	}
+	payload["oidcClientMetadata"] = oidcMetadata
 
 	var result struct {
 		ID string `json:"id"`
