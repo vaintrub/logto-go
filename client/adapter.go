@@ -1,17 +1,19 @@
-package logto
+package client
 
 import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/vaintrub/logto-go/models"
 )
 
 // Adapter implements the Client interface for Logto IDP
@@ -111,6 +113,7 @@ func (a *Adapter) AuthenticateM2M(ctx context.Context) (string, int, error) {
 	data.Set("resource", a.opts.resource)
 	data.Set("scope", a.opts.scope)
 
+	bodyBytes := []byte(data.Encode())
 	req, err := http.NewRequestWithContext(ctx, "POST", tokenURL, strings.NewReader(data.Encode()))
 	if err != nil {
 		return "", 0, err
@@ -121,7 +124,12 @@ func (a *Adapter) AuthenticateM2M(ctx context.Context) (string, int, error) {
 	req.Header.Set("Authorization", "Basic "+credentials)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	resp, err := a.httpClient.Do(req)
+	// Set GetBody for retry support
+	req.GetBody = func() (io.ReadCloser, error) {
+		return io.NopCloser(strings.NewReader(data.Encode())), nil
+	}
+
+	resp, err := a.doWithRetry(ctx, req, bodyBytes)
 	if err != nil {
 		return "", 0, fmt.Errorf("M2M auth request failed: %w", err)
 	}
@@ -141,7 +149,7 @@ func (a *Adapter) AuthenticateM2M(ctx context.Context) (string, int, error) {
 	}
 
 	if err := json.Unmarshal(body, &tokenResp); err != nil {
-		return "", 0, err
+		return "", 0, fmt.Errorf("unmarshal token response: %w", err)
 	}
 
 	// Cache token (already holding write lock from defer above)
@@ -154,7 +162,7 @@ func (a *Adapter) AuthenticateM2M(ctx context.Context) (string, int, error) {
 }
 
 // GetUser retrieves user information from Logto
-func (a *Adapter) GetUser(ctx context.Context, userID string) (*User, error) {
+func (a *Adapter) GetUser(ctx context.Context, userID string) (*models.User, error) {
 	if userID == "" {
 		return nil, &ValidationError{Field: "userID", Message: "cannot be empty"}
 	}
@@ -172,7 +180,7 @@ func (a *Adapter) GetUser(ctx context.Context, userID string) (*User, error) {
 }
 
 // GetUserByEmail retrieves user information by email
-func (a *Adapter) GetUserByEmail(ctx context.Context, email string) (*User, error) {
+func (a *Adapter) GetUserByEmail(ctx context.Context, email string) (*models.User, error) {
 	if email == "" {
 		return nil, &ValidationError{Field: "email", Message: "cannot be empty"}
 	}
@@ -188,7 +196,7 @@ func (a *Adapter) GetUserByEmail(ctx context.Context, email string) (*User, erro
 
 	var users []json.RawMessage
 	if err := json.Unmarshal(body, &users); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unmarshal users search response: %w", err)
 	}
 
 	// Find user with exact email match
@@ -205,8 +213,10 @@ func (a *Adapter) GetUserByEmail(ctx context.Context, email string) (*User, erro
 	return nil, &APIError{StatusCode: 404, Message: fmt.Sprintf("user not found with email: %s", email)}
 }
 
-// ListUsers retrieves all users
-func (a *Adapter) ListUsers(ctx context.Context) ([]*User, error) {
+// ListUsers retrieves all users.
+// Returns users and any error. If some items failed to parse, returns partial results
+// with a combined error containing all parse failures.
+func (a *Adapter) ListUsers(ctx context.Context) ([]*models.User, error) {
 	body, _, err := a.doRequest(ctx, requestConfig{
 		method: http.MethodGet,
 		path:   "/api/users",
@@ -217,18 +227,23 @@ func (a *Adapter) ListUsers(ctx context.Context) ([]*User, error) {
 
 	var usersData []json.RawMessage
 	if err := json.Unmarshal(body, &usersData); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unmarshal users response: %w", err)
 	}
 
-	users := make([]*User, 0, len(usersData))
+	users := make([]*models.User, 0, len(usersData))
+	var parseErrs []error
 	for _, userData := range usersData {
 		user, err := parseUserResponse(userData)
 		if err != nil {
+			parseErrs = append(parseErrs, err)
 			continue
 		}
 		users = append(users, user)
 	}
 
+	if len(parseErrs) > 0 {
+		return users, fmt.Errorf("failed to parse %d user(s): %w", len(parseErrs), errors.Join(parseErrs...))
+	}
 	return users, nil
 }
 
@@ -268,7 +283,7 @@ func (a *Adapter) CreateUser(ctx context.Context, username, password, name, prim
 }
 
 // GetOrganization retrieves organization details
-func (a *Adapter) GetOrganization(ctx context.Context, orgID string) (*Organization, error) {
+func (a *Adapter) GetOrganization(ctx context.Context, orgID string) (*models.Organization, error) {
 	if orgID == "" {
 		return nil, &ValidationError{Field: "orgID", Message: "cannot be empty"}
 	}
@@ -285,8 +300,10 @@ func (a *Adapter) GetOrganization(ctx context.Context, orgID string) (*Organizat
 	return parseOrganizationResponse(body)
 }
 
-// ListOrganizations retrieves all organizations
-func (a *Adapter) ListOrganizations(ctx context.Context) ([]*Organization, error) {
+// ListOrganizations retrieves all organizations.
+// Returns organizations and any error. If some items failed to parse, returns partial results
+// with a combined error containing all parse failures.
+func (a *Adapter) ListOrganizations(ctx context.Context) ([]*models.Organization, error) {
 	body, _, err := a.doRequest(ctx, requestConfig{
 		method: http.MethodGet,
 		path:   "/api/organizations",
@@ -297,23 +314,30 @@ func (a *Adapter) ListOrganizations(ctx context.Context) ([]*Organization, error
 
 	var orgsData []json.RawMessage
 	if err := json.Unmarshal(body, &orgsData); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unmarshal organizations response: %w", err)
 	}
 
-	orgs := make([]*Organization, 0, len(orgsData))
+	orgs := make([]*models.Organization, 0, len(orgsData))
+	var parseErrs []error
 	for _, orgData := range orgsData {
 		org, err := parseOrganizationResponse(orgData)
 		if err != nil {
+			parseErrs = append(parseErrs, err)
 			continue
 		}
 		orgs = append(orgs, org)
 	}
 
+	if len(parseErrs) > 0 {
+		return orgs, fmt.Errorf("failed to parse %d organization(s): %w", len(parseErrs), errors.Join(parseErrs...))
+	}
 	return orgs, nil
 }
 
-// ListUserOrganizations retrieves organizations where the user is a member
-func (a *Adapter) ListUserOrganizations(ctx context.Context, userID string) ([]*Organization, error) {
+// ListUserOrganizations retrieves organizations where the user is a member.
+// Returns organizations and any error. If some items failed to parse, returns partial results
+// with a combined error containing all parse failures.
+func (a *Adapter) ListUserOrganizations(ctx context.Context, userID string) ([]*models.Organization, error) {
 	if userID == "" {
 		return nil, &ValidationError{Field: "userID", Message: "cannot be empty"}
 	}
@@ -329,18 +353,23 @@ func (a *Adapter) ListUserOrganizations(ctx context.Context, userID string) ([]*
 
 	var orgsData []json.RawMessage
 	if err := json.Unmarshal(body, &orgsData); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unmarshal user organizations response: %w", err)
 	}
 
-	orgs := make([]*Organization, 0, len(orgsData))
+	orgs := make([]*models.Organization, 0, len(orgsData))
+	var parseErrs []error
 	for _, orgData := range orgsData {
 		org, err := parseOrganizationResponse(orgData)
 		if err != nil {
+			parseErrs = append(parseErrs, err)
 			continue
 		}
 		orgs = append(orgs, org)
 	}
 
+	if len(parseErrs) > 0 {
+		return orgs, fmt.Errorf("failed to parse %d organization(s): %w", len(parseErrs), errors.Join(parseErrs...))
+	}
 	return orgs, nil
 }
 
@@ -407,8 +436,10 @@ func (a *Adapter) DeleteOrganization(ctx context.Context, orgID string) error {
 	})
 }
 
-// ListOrganizationMembers lists all members of an organization with their roles
-func (a *Adapter) ListOrganizationMembers(ctx context.Context, orgID string) ([]*OrganizationMember, error) {
+// ListOrganizationMembers lists all members of an organization with their roles.
+// Returns members and any error. If some items failed to parse, returns partial results
+// with a combined error containing all parse failures.
+func (a *Adapter) ListOrganizationMembers(ctx context.Context, orgID string) ([]*models.OrganizationMember, error) {
 	if orgID == "" {
 		return nil, &ValidationError{Field: "orgID", Message: "cannot be empty"}
 	}
@@ -424,31 +455,23 @@ func (a *Adapter) ListOrganizationMembers(ctx context.Context, orgID string) ([]
 
 	var membersData []json.RawMessage
 	if err := json.Unmarshal(body, &membersData); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unmarshal organization members response: %w", err)
 	}
 
-	members := make([]*OrganizationMember, 0, len(membersData))
+	members := make([]*models.OrganizationMember, 0, len(membersData))
+	var parseErrs []error
 	for _, memberData := range membersData {
-		user, err := parseUserResponse(memberData)
+		member, err := parseOrganizationMemberResponse(memberData)
 		if err != nil {
+			parseErrs = append(parseErrs, err)
 			continue
 		}
-
-		// Get roles for this user
-		roles, err := a.GetUserRolesInOrganization(ctx, orgID, user.ID)
-		if err != nil && a.opts.logger != nil {
-			a.opts.logger.WarnContext(ctx, "Failed to get user roles in organization",
-				slog.String("orgID", orgID),
-				slog.String("userID", user.ID),
-				slog.Any("error", err))
-		}
-
-		members = append(members, &OrganizationMember{
-			User:  user,
-			Roles: roles,
-		})
+		members = append(members, member)
 	}
 
+	if len(parseErrs) > 0 {
+		return members, fmt.Errorf("failed to parse %d member(s): %w", len(parseErrs), errors.Join(parseErrs...))
+	}
 	return members, nil
 }
 
@@ -478,6 +501,24 @@ func (a *Adapter) AddUserToOrganization(ctx context.Context, orgID, userID strin
 	}
 
 	return nil
+}
+
+// AddUsersToOrganization adds multiple users to an organization (batch operation)
+func (a *Adapter) AddUsersToOrganization(ctx context.Context, orgID string, userIDs []string) error {
+	if orgID == "" {
+		return &ValidationError{Field: "orgID", Message: "cannot be empty"}
+	}
+	if len(userIDs) == 0 {
+		return &ValidationError{Field: "userIDs", Message: "cannot be empty"}
+	}
+
+	return a.doNoContent(ctx, requestConfig{
+		method:      http.MethodPost,
+		path:        "/api/organizations/%s/users",
+		pathParams:  []string{orgID},
+		body:        map[string][]string{"userIds": userIDs},
+		expectCodes: []int{http.StatusCreated, http.StatusOK, http.StatusNoContent},
+	})
 }
 
 // RemoveUserFromOrganization removes a user from an organization
@@ -515,8 +556,32 @@ func (a *Adapter) UpdateUserRoles(ctx context.Context, orgID, userID string, rol
 	})
 }
 
+// AssignRolesToOrganizationUsers assigns roles to multiple users in an organization (batch operation)
+func (a *Adapter) AssignRolesToOrganizationUsers(ctx context.Context, orgID string, userIDs, roleIDs []string) error {
+	if orgID == "" {
+		return &ValidationError{Field: "orgID", Message: "cannot be empty"}
+	}
+	if len(userIDs) == 0 {
+		return &ValidationError{Field: "userIDs", Message: "cannot be empty"}
+	}
+	if len(roleIDs) == 0 {
+		return &ValidationError{Field: "roleIDs", Message: "cannot be empty"}
+	}
+
+	return a.doNoContent(ctx, requestConfig{
+		method:     http.MethodPost,
+		path:       "/api/organizations/%s/users/roles",
+		pathParams: []string{orgID},
+		body: map[string][]string{
+			"userIds":             userIDs,
+			"organizationRoleIds": roleIDs,
+		},
+		expectCodes: []int{http.StatusCreated, http.StatusOK, http.StatusNoContent},
+	})
+}
+
 // GetUserRolesInOrganization gets a user's roles in an organization
-func (a *Adapter) GetUserRolesInOrganization(ctx context.Context, orgID, userID string) ([]OrganizationRole, error) {
+func (a *Adapter) GetUserRolesInOrganization(ctx context.Context, orgID, userID string) ([]models.OrganizationRole, error) {
 	if orgID == "" {
 		return nil, &ValidationError{Field: "orgID", Message: "cannot be empty"}
 	}
@@ -539,12 +604,12 @@ func (a *Adapter) GetUserRolesInOrganization(ctx context.Context, orgID, userID 
 	}
 
 	if err := json.Unmarshal(body, &rolesResp); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unmarshal user roles response: %w", err)
 	}
 
-	roles := make([]OrganizationRole, len(rolesResp))
+	roles := make([]models.OrganizationRole, len(rolesResp))
 	for i, r := range rolesResp {
-		roles[i] = OrganizationRole{
+		roles[i] = models.OrganizationRole{
 			ID:   r.ID,
 			Name: r.Name,
 		}
@@ -553,8 +618,8 @@ func (a *Adapter) GetUserRolesInOrganization(ctx context.Context, orgID, userID 
 	return roles, nil
 }
 
-// ListOrganizationRoles lists all organization roles
-func (a *Adapter) ListOrganizationRoles(ctx context.Context) ([]OrganizationRole, error) {
+// ListOrganizationRoles lists all organization roles with their scopes
+func (a *Adapter) ListOrganizationRoles(ctx context.Context) ([]models.OrganizationRole, error) {
 	body, _, err := a.doRequest(ctx, requestConfig{
 		method: http.MethodGet,
 		path:   "/api/organization-roles",
@@ -567,30 +632,45 @@ func (a *Adapter) ListOrganizationRoles(ctx context.Context) ([]OrganizationRole
 		ID          string `json:"id"`
 		Name        string `json:"name"`
 		Description string `json:"description"`
+		Scopes      []struct {
+			ID          string `json:"id"`
+			Name        string `json:"name"`
+			Description string `json:"description"`
+		} `json:"scopes"`
 	}
 
 	if err := json.Unmarshal(body, &rolesResp); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unmarshal organization roles response: %w", err)
 	}
 
-	roles := make([]OrganizationRole, len(rolesResp))
+	roles := make([]models.OrganizationRole, len(rolesResp))
 	for i, r := range rolesResp {
-		roles[i] = OrganizationRole{
+		scopes := make([]models.OrganizationScope, len(r.Scopes))
+		for j, s := range r.Scopes {
+			scopes[j] = models.OrganizationScope{
+				ID:          s.ID,
+				Name:        s.Name,
+				Description: s.Description,
+			}
+		}
+		roles[i] = models.OrganizationRole{
 			ID:          r.ID,
 			Name:        r.Name,
 			Description: r.Description,
+			Scopes:      scopes,
 		}
 	}
 
 	return roles, nil
 }
 
-// GetOrganizationRole retrieves a single organization role by ID
-func (a *Adapter) GetOrganizationRole(ctx context.Context, roleID string) (*OrganizationRole, error) {
+// GetOrganizationRole retrieves a single organization role by ID with its scopes
+func (a *Adapter) GetOrganizationRole(ctx context.Context, roleID string) (*models.OrganizationRole, error) {
 	if roleID == "" {
 		return nil, &ValidationError{Field: "roleID", Message: "cannot be empty"}
 	}
 
+	// Get role details
 	body, _, err := a.doRequest(ctx, requestConfig{
 		method:     http.MethodGet,
 		path:       "/api/organization-roles/%s",
@@ -604,32 +684,61 @@ func (a *Adapter) GetOrganizationRole(ctx context.Context, roleID string) (*Orga
 		ID          string `json:"id"`
 		Name        string `json:"name"`
 		Description string `json:"description"`
-		Scopes      []struct {
-			ID          string `json:"id"`
-			Name        string `json:"name"`
-			Description string `json:"description"`
-		} `json:"scopes"`
 	}
 
 	if err := json.Unmarshal(body, &roleResp); err != nil {
+		return nil, fmt.Errorf("unmarshal organization role response: %w", err)
+	}
+
+	// Get role scopes (separate endpoint in Logto API)
+	scopes, err := a.GetOrganizationRoleScopes(ctx, roleID)
+	if err != nil {
 		return nil, err
 	}
 
-	scopes := make([]OrganizationScope, len(roleResp.Scopes))
-	for i, s := range roleResp.Scopes {
-		scopes[i] = OrganizationScope{
+	return &models.OrganizationRole{
+		ID:          roleResp.ID,
+		Name:        roleResp.Name,
+		Description: roleResp.Description,
+		Scopes:      scopes,
+	}, nil
+}
+
+// GetOrganizationRoleScopes retrieves scopes assigned to an organization role
+func (a *Adapter) GetOrganizationRoleScopes(ctx context.Context, roleID string) ([]models.OrganizationScope, error) {
+	if roleID == "" {
+		return nil, &ValidationError{Field: "roleID", Message: "cannot be empty"}
+	}
+
+	body, _, err := a.doRequest(ctx, requestConfig{
+		method:     http.MethodGet,
+		path:       "/api/organization-roles/%s/scopes",
+		pathParams: []string{roleID},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	var scopesResp []struct {
+		ID          string `json:"id"`
+		Name        string `json:"name"`
+		Description string `json:"description"`
+	}
+
+	if err := json.Unmarshal(body, &scopesResp); err != nil {
+		return nil, fmt.Errorf("unmarshal organization role scopes response: %w", err)
+	}
+
+	scopes := make([]models.OrganizationScope, len(scopesResp))
+	for i, s := range scopesResp {
+		scopes[i] = models.OrganizationScope{
 			ID:          s.ID,
 			Name:        s.Name,
 			Description: s.Description,
 		}
 	}
 
-	return &OrganizationRole{
-		ID:          roleResp.ID,
-		Name:        roleResp.Name,
-		Description: roleResp.Description,
-		Scopes:      scopes,
-	}, nil
+	return scopes, nil
 }
 
 // CreateOrganizationRole creates a new organization role
@@ -700,43 +809,6 @@ func (a *Adapter) DeleteOrganizationRole(ctx context.Context, roleID string) err
 	})
 }
 
-// GetOrganizationRoleScopes retrieves scopes assigned to an organization role
-func (a *Adapter) GetOrganizationRoleScopes(ctx context.Context, roleID string) ([]OrganizationScope, error) {
-	if roleID == "" {
-		return nil, &ValidationError{Field: "roleID", Message: "cannot be empty"}
-	}
-
-	body, _, err := a.doRequest(ctx, requestConfig{
-		method:     http.MethodGet,
-		path:       "/api/organization-roles/%s/scopes",
-		pathParams: []string{roleID},
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	var scopesResp []struct {
-		ID          string `json:"id"`
-		Name        string `json:"name"`
-		Description string `json:"description"`
-	}
-
-	if err := json.Unmarshal(body, &scopesResp); err != nil {
-		return nil, err
-	}
-
-	scopes := make([]OrganizationScope, len(scopesResp))
-	for i, s := range scopesResp {
-		scopes[i] = OrganizationScope{
-			ID:          s.ID,
-			Name:        s.Name,
-			Description: s.Description,
-		}
-	}
-
-	return scopes, nil
-}
-
 // SetOrganizationRoleScopes replaces all scopes for an organization role
 func (a *Adapter) SetOrganizationRoleScopes(ctx context.Context, roleID string, scopeIDs []string) error {
 	if roleID == "" {
@@ -800,12 +872,12 @@ func (a *Adapter) AssignResourceScopesToOrganizationRole(ctx context.Context, ro
 }
 
 // GetOrganizationScope retrieves a single organization scope by ID
-func (a *Adapter) GetOrganizationScope(ctx context.Context, scopeID string) (*OrganizationScope, error) {
+func (a *Adapter) GetOrganizationScope(ctx context.Context, scopeID string) (*models.OrganizationScope, error) {
 	if scopeID == "" {
 		return nil, &ValidationError{Field: "scopeID", Message: "cannot be empty"}
 	}
 
-	var result OrganizationScope
+	var result models.OrganizationScope
 	err := a.doJSON(ctx, requestConfig{
 		method:     http.MethodGet,
 		path:       "/api/organization-scopes/%s",
@@ -819,8 +891,8 @@ func (a *Adapter) GetOrganizationScope(ctx context.Context, scopeID string) (*Or
 }
 
 // ListOrganizationScopes lists all organization scopes
-func (a *Adapter) ListOrganizationScopes(ctx context.Context) ([]OrganizationScope, error) {
-	var result []OrganizationScope
+func (a *Adapter) ListOrganizationScopes(ctx context.Context) ([]models.OrganizationScope, error) {
+	var result []models.OrganizationScope
 	err := a.doJSON(ctx, requestConfig{
 		method: http.MethodGet,
 		path:   "/api/organization-scopes",
@@ -894,7 +966,7 @@ func (a *Adapter) DeleteOrganizationScope(ctx context.Context, scopeID string) e
 }
 
 // GetAPIResource retrieves a single API resource by ID
-func (a *Adapter) GetAPIResource(ctx context.Context, resourceID string) (*APIResource, error) {
+func (a *Adapter) GetAPIResource(ctx context.Context, resourceID string) (*models.APIResource, error) {
 	if resourceID == "" {
 		return nil, &ValidationError{Field: "resourceID", Message: "cannot be empty"}
 	}
@@ -911,8 +983,10 @@ func (a *Adapter) GetAPIResource(ctx context.Context, resourceID string) (*APIRe
 	return parseAPIResourceResponse(body)
 }
 
-// ListAPIResources lists all API resources
-func (a *Adapter) ListAPIResources(ctx context.Context) ([]*APIResource, error) {
+// ListAPIResources lists all API resources.
+// Returns resources and any error. If some items failed to parse, returns partial results
+// with a combined error containing all parse failures.
+func (a *Adapter) ListAPIResources(ctx context.Context) ([]*models.APIResource, error) {
 	body, _, err := a.doRequest(ctx, requestConfig{
 		method: http.MethodGet,
 		path:   "/api/resources",
@@ -923,18 +997,23 @@ func (a *Adapter) ListAPIResources(ctx context.Context) ([]*APIResource, error) 
 
 	var resourcesData []json.RawMessage
 	if err := json.Unmarshal(body, &resourcesData); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unmarshal API resources response: %w", err)
 	}
 
-	resources := make([]*APIResource, 0, len(resourcesData))
+	resources := make([]*models.APIResource, 0, len(resourcesData))
+	var parseErrs []error
 	for _, data := range resourcesData {
 		resource, err := parseAPIResourceResponse(data)
 		if err != nil {
+			parseErrs = append(parseErrs, err)
 			continue
 		}
 		resources = append(resources, resource)
 	}
 
+	if len(parseErrs) > 0 {
+		return resources, fmt.Errorf("failed to parse %d resource(s): %w", len(parseErrs), errors.Join(parseErrs...))
+	}
 	return resources, nil
 }
 
@@ -1003,7 +1082,7 @@ func (a *Adapter) DeleteAPIResource(ctx context.Context, resourceID string) erro
 }
 
 // GetAPIResourceScope retrieves a single scope for an API resource
-func (a *Adapter) GetAPIResourceScope(ctx context.Context, resourceID, scopeID string) (*APIResourceScope, error) {
+func (a *Adapter) GetAPIResourceScope(ctx context.Context, resourceID, scopeID string) (*models.APIResourceScope, error) {
 	// Logto API doesn't have a direct GET endpoint for individual scopes,
 	// so we list all scopes and find the one we need
 	scopes, err := a.ListAPIResourceScopes(ctx, resourceID)
@@ -1021,12 +1100,12 @@ func (a *Adapter) GetAPIResourceScope(ctx context.Context, resourceID, scopeID s
 }
 
 // ListAPIResourceScopes lists all scopes for an API resource
-func (a *Adapter) ListAPIResourceScopes(ctx context.Context, resourceID string) ([]*APIResourceScope, error) {
+func (a *Adapter) ListAPIResourceScopes(ctx context.Context, resourceID string) ([]*models.APIResourceScope, error) {
 	if resourceID == "" {
 		return nil, &ValidationError{Field: "resourceID", Message: "cannot be empty"}
 	}
 
-	var result []*APIResourceScope
+	var result []*models.APIResourceScope
 	err := a.doJSON(ctx, requestConfig{
 		method:     http.MethodGet,
 		path:       "/api/resources/%s/scopes",
@@ -1110,8 +1189,10 @@ func (a *Adapter) DeleteAPIResourceScope(ctx context.Context, resourceID, scopeI
 	})
 }
 
-// ListApplications retrieves all applications
-func (a *Adapter) ListApplications(ctx context.Context) ([]*Application, error) {
+// ListApplications retrieves all applications.
+// Returns applications and any error. If some items failed to parse, returns partial results
+// with a combined error containing all parse failures.
+func (a *Adapter) ListApplications(ctx context.Context) ([]*models.Application, error) {
 	body, _, err := a.doRequest(ctx, requestConfig{
 		method: http.MethodGet,
 		path:   "/api/applications",
@@ -1122,23 +1203,28 @@ func (a *Adapter) ListApplications(ctx context.Context) ([]*Application, error) 
 
 	var appsData []json.RawMessage
 	if err := json.Unmarshal(body, &appsData); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unmarshal applications response: %w", err)
 	}
 
-	apps := make([]*Application, 0, len(appsData))
+	apps := make([]*models.Application, 0, len(appsData))
+	var parseErrs []error
 	for _, appData := range appsData {
 		app, err := parseApplicationResponse(appData)
 		if err != nil {
+			parseErrs = append(parseErrs, err)
 			continue
 		}
 		apps = append(apps, app)
 	}
 
+	if len(parseErrs) > 0 {
+		return apps, fmt.Errorf("failed to parse %d application(s): %w", len(parseErrs), errors.Join(parseErrs...))
+	}
 	return apps, nil
 }
 
 // CreateApplication creates a new application in Logto
-func (a *Adapter) CreateApplication(ctx context.Context, app ApplicationCreate) (string, error) {
+func (a *Adapter) CreateApplication(ctx context.Context, app models.ApplicationCreate) (string, error) {
 	if app.Name == "" {
 		return "", &ValidationError{Field: "name", Message: "cannot be empty"}
 	}
@@ -1180,7 +1266,7 @@ func (a *Adapter) CreateApplication(ctx context.Context, app ApplicationCreate) 
 }
 
 // Helper function to parse API resource response
-func parseAPIResourceResponse(data []byte) (*APIResource, error) {
+func parseAPIResourceResponse(data []byte) (*models.APIResource, error) {
 	var resourceResp struct {
 		ID             string `json:"id"`
 		Name           string `json:"name"`
@@ -1190,10 +1276,10 @@ func parseAPIResourceResponse(data []byte) (*APIResource, error) {
 	}
 
 	if err := json.Unmarshal(data, &resourceResp); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("parse API resource: %w", err)
 	}
 
-	return &APIResource{
+	return &models.APIResource{
 		ID:             resourceResp.ID,
 		Name:           resourceResp.Name,
 		Indicator:      resourceResp.Indicator,
@@ -1243,7 +1329,7 @@ func (a *Adapter) CreateOrganizationInvitation(ctx context.Context, orgID, invit
 }
 
 // UpdateUser updates user profile fields
-func (a *Adapter) UpdateUser(ctx context.Context, userID string, update UserUpdate) error {
+func (a *Adapter) UpdateUser(ctx context.Context, userID string, update models.UserUpdate) error {
 	if userID == "" {
 		return &ValidationError{Field: "userID", Message: "cannot be empty"}
 	}
@@ -1280,8 +1366,10 @@ func (a *Adapter) UpdateUserCustomData(ctx context.Context, userID string, custo
 	})
 }
 
-// ListOrganizationInvitations lists invitations for an organization
-func (a *Adapter) ListOrganizationInvitations(ctx context.Context, orgID string) ([]*OrganizationInvitation, error) {
+// ListOrganizationInvitations lists invitations for an organization.
+// Returns invitations and any error. If some items failed to parse, returns partial results
+// with a combined error containing all parse failures.
+func (a *Adapter) ListOrganizationInvitations(ctx context.Context, orgID string) ([]*models.OrganizationInvitation, error) {
 	if orgID == "" {
 		return nil, &ValidationError{Field: "orgID", Message: "cannot be empty"}
 	}
@@ -1297,23 +1385,28 @@ func (a *Adapter) ListOrganizationInvitations(ctx context.Context, orgID string)
 
 	var invitationsData []json.RawMessage
 	if err := json.Unmarshal(body, &invitationsData); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unmarshal invitations response: %w", err)
 	}
 
-	invitations := make([]*OrganizationInvitation, 0, len(invitationsData))
+	invitations := make([]*models.OrganizationInvitation, 0, len(invitationsData))
+	var parseErrs []error
 	for _, data := range invitationsData {
 		inv, err := parseInvitationResponse(data)
 		if err != nil {
+			parseErrs = append(parseErrs, err)
 			continue
 		}
 		invitations = append(invitations, inv)
 	}
 
+	if len(parseErrs) > 0 {
+		return invitations, fmt.Errorf("failed to parse %d invitation(s): %w", len(parseErrs), errors.Join(parseErrs...))
+	}
 	return invitations, nil
 }
 
 // GetOrganizationInvitation retrieves a single invitation by ID
-func (a *Adapter) GetOrganizationInvitation(ctx context.Context, invitationID string) (*OrganizationInvitation, error) {
+func (a *Adapter) GetOrganizationInvitation(ctx context.Context, invitationID string) (*models.OrganizationInvitation, error) {
 	if invitationID == "" {
 		return nil, &ValidationError{Field: "invitationID", Message: "cannot be empty"}
 	}
@@ -1362,7 +1455,7 @@ func (a *Adapter) SendInvitationMessage(ctx context.Context, invitationID, magic
 }
 
 // CreateOneTimeToken creates a one-time token for magic link authentication
-func (a *Adapter) CreateOneTimeToken(ctx context.Context, email string, expiresIn int, jitOrgIDs []string) (*OneTimeTokenResult, error) {
+func (a *Adapter) CreateOneTimeToken(ctx context.Context, email string, expiresIn int, jitOrgIDs []string) (*models.OneTimeTokenResult, error) {
 	if email == "" {
 		return nil, &ValidationError{Field: "email", Message: "cannot be empty"}
 	}
@@ -1392,7 +1485,7 @@ func (a *Adapter) CreateOneTimeToken(ctx context.Context, email string, expiresI
 		return nil, err
 	}
 
-	return &OneTimeTokenResult{
+	return &models.OneTimeTokenResult{
 		Token:     result.Token,
 		ExpiresAt: result.ExpiresAt,
 	}, nil
@@ -1400,7 +1493,67 @@ func (a *Adapter) CreateOneTimeToken(ctx context.Context, email string, expiresI
 
 // Helper functions
 
-func parseUserResponse(data []byte) (*User, error) {
+// parseOrganizationMemberResponse parses user with their organization roles from API response
+// The /api/organizations/{id}/users endpoint returns users with their organizationRoles
+func parseOrganizationMemberResponse(data []byte) (*models.OrganizationMember, error) {
+	var memberResp struct {
+		ID                string                 `json:"id"`
+		Name              string                 `json:"name"`
+		Username          string                 `json:"username"`
+		PrimaryEmail      string                 `json:"primaryEmail"`
+		Avatar            string                 `json:"avatar"`
+		IsSuspended       bool                   `json:"isSuspended"`
+		CustomData        map[string]interface{} `json:"customData"`
+		CreatedAt         int64                  `json:"createdAt"`
+		UpdatedAt         int64                  `json:"updatedAt"`
+		OrganizationRoles []struct {
+			ID          string `json:"id"`
+			Name        string `json:"name"`
+			Description string `json:"description"`
+		} `json:"organizationRoles"`
+	}
+
+	if err := json.Unmarshal(data, &memberResp); err != nil {
+		return nil, fmt.Errorf("parse organization member: %w", err)
+	}
+
+	email := memberResp.PrimaryEmail
+	if email == "" {
+		email = memberResp.Username
+	}
+
+	customData := memberResp.CustomData
+	if customData == nil {
+		customData = make(map[string]interface{})
+	}
+
+	user := &models.User{
+		ID:          memberResp.ID,
+		Name:        memberResp.Name,
+		Email:       email,
+		Avatar:      memberResp.Avatar,
+		IsSuspended: memberResp.IsSuspended,
+		CustomData:  customData,
+		CreatedAt:   time.UnixMilli(memberResp.CreatedAt),
+		UpdatedAt:   time.UnixMilli(memberResp.UpdatedAt),
+	}
+
+	roles := make([]models.OrganizationRole, len(memberResp.OrganizationRoles))
+	for i, r := range memberResp.OrganizationRoles {
+		roles[i] = models.OrganizationRole{
+			ID:          r.ID,
+			Name:        r.Name,
+			Description: r.Description,
+		}
+	}
+
+	return &models.OrganizationMember{
+		User:  user,
+		Roles: roles,
+	}, nil
+}
+
+func parseUserResponse(data []byte) (*models.User, error) {
 	var userResp struct {
 		ID           string                 `json:"id"`
 		Name         string                 `json:"name"`
@@ -1414,7 +1567,7 @@ func parseUserResponse(data []byte) (*User, error) {
 	}
 
 	if err := json.Unmarshal(data, &userResp); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("parse user: %w", err)
 	}
 
 	email := userResp.PrimaryEmail
@@ -1427,7 +1580,7 @@ func parseUserResponse(data []byte) (*User, error) {
 		customData = make(map[string]interface{})
 	}
 
-	return &User{
+	return &models.User{
 		ID:          userResp.ID,
 		Name:        userResp.Name,
 		Email:       email,
@@ -1439,7 +1592,7 @@ func parseUserResponse(data []byte) (*User, error) {
 	}, nil
 }
 
-func parseOrganizationResponse(data []byte) (*Organization, error) {
+func parseOrganizationResponse(data []byte) (*models.Organization, error) {
 	var orgResp struct {
 		ID          string                 `json:"id"`
 		Name        string                 `json:"name"`
@@ -1449,7 +1602,7 @@ func parseOrganizationResponse(data []byte) (*Organization, error) {
 	}
 
 	if err := json.Unmarshal(data, &orgResp); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("parse organization: %w", err)
 	}
 
 	customData := orgResp.CustomData
@@ -1457,7 +1610,7 @@ func parseOrganizationResponse(data []byte) (*Organization, error) {
 		customData = make(map[string]interface{})
 	}
 
-	return &Organization{
+	return &models.Organization{
 		ID:          orgResp.ID,
 		Name:        orgResp.Name,
 		Description: orgResp.Description,
@@ -1466,7 +1619,7 @@ func parseOrganizationResponse(data []byte) (*Organization, error) {
 	}, nil
 }
 
-func parseInvitationResponse(data []byte) (*OrganizationInvitation, error) {
+func parseInvitationResponse(data []byte) (*models.OrganizationInvitation, error) {
 	var invResp struct {
 		ID                string `json:"id"`
 		InviterID         string `json:"inviterId"`
@@ -1484,18 +1637,18 @@ func parseInvitationResponse(data []byte) (*OrganizationInvitation, error) {
 	}
 
 	if err := json.Unmarshal(data, &invResp); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("parse invitation: %w", err)
 	}
 
-	roles := make([]OrganizationRole, len(invResp.OrganizationRoles))
+	roles := make([]models.OrganizationRole, len(invResp.OrganizationRoles))
 	for i, r := range invResp.OrganizationRoles {
-		roles[i] = OrganizationRole{
+		roles[i] = models.OrganizationRole{
 			ID:   r.ID,
 			Name: r.Name,
 		}
 	}
 
-	return &OrganizationInvitation{
+	return &models.OrganizationInvitation{
 		ID:             invResp.ID,
 		OrganizationID: invResp.OrganizationID,
 		Invitee:        invResp.Invitee,
@@ -1509,7 +1662,7 @@ func parseInvitationResponse(data []byte) (*OrganizationInvitation, error) {
 	}, nil
 }
 
-func parseApplicationResponse(data []byte) (*Application, error) {
+func parseApplicationResponse(data []byte) (*models.Application, error) {
 	var appResp struct {
 		ID                 string                 `json:"id"`
 		Name               string                 `json:"name"`
@@ -1526,7 +1679,7 @@ func parseApplicationResponse(data []byte) (*Application, error) {
 	}
 
 	if err := json.Unmarshal(data, &appResp); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("parse application: %w", err)
 	}
 
 	customData := appResp.CustomData
@@ -1534,11 +1687,11 @@ func parseApplicationResponse(data []byte) (*Application, error) {
 		customData = make(map[string]interface{})
 	}
 
-	return &Application{
+	return &models.Application{
 		ID:                     appResp.ID,
 		Name:                   appResp.Name,
 		Description:            appResp.Description,
-		Type:                   ApplicationType(appResp.Type),
+		Type:                   models.ApplicationType(appResp.Type),
 		Secret:                 appResp.Secret,
 		IsThirdParty:           appResp.IsThirdParty,
 		RedirectURIs:           appResp.OidcClientMetadata.RedirectUris,
@@ -1550,7 +1703,7 @@ func parseApplicationResponse(data []byte) (*Application, error) {
 
 // Paginated list methods for iterators
 
-func (a *Adapter) listUsersPaginated(ctx context.Context, page, pageSize int) ([]*User, error) {
+func (a *Adapter) listUsersPaginated(ctx context.Context, page, pageSize int) ([]*models.User, error) {
 	body, _, err := a.doRequest(ctx, requestConfig{
 		method: http.MethodGet,
 		path:   "/api/users",
@@ -1565,13 +1718,14 @@ func (a *Adapter) listUsersPaginated(ctx context.Context, page, pageSize int) ([
 
 	var usersData []json.RawMessage
 	if err := json.Unmarshal(body, &usersData); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unmarshal paginated users response: %w", err)
 	}
 
-	users := make([]*User, 0, len(usersData))
+	users := make([]*models.User, 0, len(usersData))
 	for _, userData := range usersData {
 		user, err := parseUserResponse(userData)
 		if err != nil {
+			// Skip invalid items in pagination - errors are less critical here
 			continue
 		}
 		users = append(users, user)
@@ -1580,7 +1734,7 @@ func (a *Adapter) listUsersPaginated(ctx context.Context, page, pageSize int) ([
 	return users, nil
 }
 
-func (a *Adapter) listOrganizationsPaginated(ctx context.Context, page, pageSize int) ([]*Organization, error) {
+func (a *Adapter) listOrganizationsPaginated(ctx context.Context, page, pageSize int) ([]*models.Organization, error) {
 	body, _, err := a.doRequest(ctx, requestConfig{
 		method: http.MethodGet,
 		path:   "/api/organizations",
@@ -1595,50 +1749,20 @@ func (a *Adapter) listOrganizationsPaginated(ctx context.Context, page, pageSize
 
 	var orgsData []json.RawMessage
 	if err := json.Unmarshal(body, &orgsData); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unmarshal paginated organizations response: %w", err)
 	}
 
-	orgs := make([]*Organization, 0, len(orgsData))
+	orgs := make([]*models.Organization, 0, len(orgsData))
 	for _, orgData := range orgsData {
 		org, err := parseOrganizationResponse(orgData)
 		if err != nil {
+			// Skip invalid items in pagination - errors are less critical here
 			continue
 		}
 		orgs = append(orgs, org)
 	}
 
 	return orgs, nil
-}
-
-func (a *Adapter) listInvitationsPaginated(ctx context.Context, orgID string, page, pageSize int) ([]*OrganizationInvitation, error) {
-	body, _, err := a.doRequest(ctx, requestConfig{
-		method: http.MethodGet,
-		path:   "/api/organization-invitations",
-		query: url.Values{
-			"organizationId": {orgID},
-			"page":           {fmt.Sprintf("%d", page)},
-			"page_size":      {fmt.Sprintf("%d", pageSize)},
-		},
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	var invitationsData []json.RawMessage
-	if err := json.Unmarshal(body, &invitationsData); err != nil {
-		return nil, err
-	}
-
-	invitations := make([]*OrganizationInvitation, 0, len(invitationsData))
-	for _, data := range invitationsData {
-		inv, err := parseInvitationResponse(data)
-		if err != nil {
-			continue
-		}
-		invitations = append(invitations, inv)
-	}
-
-	return invitations, nil
 }
 
 // Iterator factory methods
@@ -1659,18 +1783,6 @@ func (a *Adapter) ListOrganizationsIter(ctx context.Context, pageSize int) *Orga
 	return &OrganizationIterator{
 		adapter:  a,
 		ctx:      ctx,
-		pageSize: pageSize,
-		page:     0,
-		index:    -1,
-	}
-}
-
-// ListInvitationsIter returns an iterator for paginating through invitations.
-func (a *Adapter) ListInvitationsIter(ctx context.Context, orgID string, pageSize int) *InvitationIterator {
-	return &InvitationIterator{
-		adapter:  a,
-		ctx:      ctx,
-		orgID:    orgID,
 		pageSize: pageSize,
 		page:     0,
 		index:    -1,

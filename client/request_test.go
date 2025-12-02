@@ -1,4 +1,4 @@
-package logto
+package client
 
 import (
 	"context"
@@ -74,6 +74,7 @@ func TestDoRequest_UsesRetry(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Token endpoint
 		if r.URL.Path == "/oidc/token" {
+			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"access_token": "test-token",
 				"expires_in":   3600,
@@ -86,6 +87,7 @@ func TestDoRequest_UsesRetry(t *testing.T) {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			return
 		}
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_ = json.NewEncoder(w).Encode(map[string]string{"id": "test"})
 	}))
@@ -112,6 +114,7 @@ func TestDoRequest_ReturnsAPIError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Token endpoint
 		if r.URL.Path == "/oidc/token" {
+			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"access_token": "test-token",
 				"expires_in":   3600,
@@ -119,6 +122,7 @@ func TestDoRequest_ReturnsAPIError(t *testing.T) {
 			return
 		}
 		// API endpoint returns error
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"message": "User not found",
@@ -158,12 +162,14 @@ func TestDoRequest_ReturnsAPIError(t *testing.T) {
 func TestDoJSON_UnmarshalSuccess(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/oidc/token" {
+			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"access_token": "test-token",
 				"expires_in":   3600,
 			})
 			return
 		}
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"id":   "user-123",
@@ -198,6 +204,7 @@ func TestDoJSON_UnmarshalSuccess(t *testing.T) {
 func TestDoNoContent_Success(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/oidc/token" {
+			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"access_token": "test-token",
 				"expires_in":   3600,

@@ -1,4 +1,4 @@
-package logto
+package client
 
 // TokenInfo represents parsed JWT access token information.
 // This is NOT a full user - only security context from the token.

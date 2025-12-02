@@ -1,0 +1,57 @@
+# Created by .ignore support plugin (hsz.mobi)
+### Go template
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool, specifically when used with LiteIDE
+*.out
+
+# Dependency directories (remove the comment below to include it)
+vendor/
+
+# Tools
+.idea
+.claude
+.codex
+.specify
+
+.terraform
+*.tfstate
+*.tfstate.*backup
+terraform/.env
+terraform/cloud-builders-community
+
+/service-account-file.json
+
+.go/
+.go-cache/
+
+# Environment variables
+.env.local
+.env.*.local
+.env
+
+# Logs
+*.log
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Temporary files
+*.tmp
+*.swp
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+dist/
+build/
