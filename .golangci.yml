@@ -1,0 +1,14 @@
+version: "2"
+
+run:
+  timeout: 3m
+
+linters:
+  enable:
+    - errcheck
+    - staticcheck
+    - govet
+
+issues:
+  exclude-dirs:
+    - tests

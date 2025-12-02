@@ -1,4 +1,4 @@
-package logto
+package client
 
 import (
 	"log/slog"

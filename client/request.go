@@ -1,4 +1,4 @@
-package logto
+package client
 
 import (
 	"bytes"
@@ -91,6 +91,17 @@ func (a *Adapter) doJSON(ctx context.Context, cfg requestConfig, result interfac
 	}
 
 	if result != nil && len(body) > 0 {
+		// Validate that body looks like JSON before parsing
+		trimmed := bytes.TrimSpace(body)
+		if len(trimmed) > 0 && trimmed[0] != '{' && trimmed[0] != '[' {
+			// Truncate body for error message if too long
+			preview := string(body)
+			if len(preview) > 200 {
+				preview = preview[:200] + "..."
+			}
+			return fmt.Errorf("expected JSON response but got: %s", preview)
+		}
+
 		if err := json.Unmarshal(body, result); err != nil {
 			return fmt.Errorf("failed to unmarshal response: %w", err)
 		}
