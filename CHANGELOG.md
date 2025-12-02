@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.3](https://github.com/vaintrub/logto-go/compare/v1.0.2...v1.0.3) (2025-12-02)
+
+
+### Miscellaneous Chores
+
+* release 1.0.3 ([64b24e2](https://github.com/vaintrub/logto-go/commit/64b24e2298afee4c4e3aabc4418bf5edb2fac368))
+
 ## [1.0.2](https://github.com/vaintrub/logto-go/compare/v1.0.1...v1.0.2) (2025-11-30)
 
 
