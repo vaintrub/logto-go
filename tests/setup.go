@@ -127,8 +127,8 @@ func Setup(ctx context.Context) (*Env, error) {
 		logs, _ := seedContainer.Logs(ctx)
 		if logs != nil {
 			buf := new(bytes.Buffer)
-			buf.ReadFrom(logs)
-			logs.Close()
+			_, _ = buf.ReadFrom(logs)
+			_ = logs.Close()
 			return nil, fmt.Errorf("seed failed with exit code %d: %s", code.ExitCode, buf.String())
 		}
 		env.Teardown(ctx)
@@ -185,7 +185,7 @@ func Setup(ctx context.Context) (*Env, error) {
 	// 5. Wait for Logto to fully initialize
 	if err := waitForLogtoReady(ctx, env.LogtoEndpoint, 60*time.Second); err != nil {
 		env.Teardown(ctx)
-		return nil, fmt.Errorf("Logto not ready: %w", err)
+		return nil, fmt.Errorf("logto not ready: %w", err)
 	}
 
 	// 6. Create Logto client
@@ -221,11 +221,11 @@ func waitForLogtoReady(ctx context.Context, endpoint string, timeout time.Durati
 	for time.Now().Before(deadline) {
 		resp, err := http.Get(endpoint + "/api/status")
 		if err == nil && (resp.StatusCode == 200 || resp.StatusCode == 204) {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			return nil
 		}
 		if resp != nil {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 		}
 		time.Sleep(2 * time.Second)
 	}
@@ -238,7 +238,7 @@ func bootstrapM2MApp(ctx context.Context, postgresURL string) error {
 	if err != nil {
 		return fmt.Errorf("connect to postgres: %w", err)
 	}
-	defer conn.Close(ctx)
+	defer func() { _ = conn.Close(ctx) }()
 
 	// Parse and execute template
 	tmpl, err := template.New("bootstrap").Parse(bootstrapSQL)
