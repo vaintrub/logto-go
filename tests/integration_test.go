@@ -40,16 +40,17 @@ func TestUserCRUD(t *testing.T) {
 	email := fmt.Sprintf("testuser%d@test.local", time.Now().UnixNano())
 
 	// Create user
-	userID, err := testClient.CreateUser(ctx, username, "Password123!", "Test User", email)
+	createdUser, err := testClient.CreateUser(ctx, username, "Password123!", "Test User", email)
 	require.NoError(t, err, "CreateUser should succeed")
-	assert.NotEmpty(t, userID, "User ID should not be empty")
+	assert.NotEmpty(t, createdUser.ID, "User ID should not be empty")
+	userID := createdUser.ID
 
 	// Get user
 	user, err := testClient.GetUser(ctx, userID)
 	require.NoError(t, err, "GetUser should succeed")
 	assert.Equal(t, userID, user.ID)
 	assert.Equal(t, "Test User", user.Name)
-	assert.Equal(t, email, user.Email)
+	assert.Equal(t, email, user.PrimaryEmail)
 
 	// Get user by email
 	userByEmail, err := testClient.GetUserByEmail(ctx, email)
@@ -58,16 +59,17 @@ func TestUserCRUD(t *testing.T) {
 
 	// Update user
 	newName := "Updated User"
-	err = testClient.UpdateUser(ctx, userID, models.UserUpdate{Name: &newName})
+	updatedUser, err := testClient.UpdateUser(ctx, userID, models.UserUpdate{Name: &newName})
 	require.NoError(t, err, "UpdateUser should succeed")
-
-	// Verify update
-	updatedUser, err := testClient.GetUser(ctx, userID)
-	require.NoError(t, err)
 	assert.Equal(t, newName, updatedUser.Name)
 
+	// Verify update
+	verifiedUser, err := testClient.GetUser(ctx, userID)
+	require.NoError(t, err)
+	assert.Equal(t, newName, verifiedUser.Name)
+
 	// Update custom data
-	err = testClient.UpdateUserCustomData(ctx, userID, map[string]interface{}{"key": "value"})
+	_, err = testClient.UpdateUserCustomData(ctx, userID, map[string]interface{}{"key": "value"})
 	require.NoError(t, err, "UpdateUserCustomData should succeed")
 
 	// List users
@@ -92,9 +94,10 @@ func TestOrganizationCRUD(t *testing.T) {
 	orgName := fmt.Sprintf("Test Org %d", time.Now().UnixNano())
 
 	// Create organization
-	orgID, err := testClient.CreateOrganization(ctx, orgName, "Test description")
+	createdOrg, err := testClient.CreateOrganization(ctx, orgName, "Test description")
 	require.NoError(t, err, "CreateOrganization should succeed")
-	assert.NotEmpty(t, orgID, "Org ID should not be empty")
+	assert.NotEmpty(t, createdOrg.ID, "Org ID should not be empty")
+	orgID := createdOrg.ID
 
 	// Get organization
 	org, err := testClient.GetOrganization(ctx, orgID)
@@ -105,13 +108,14 @@ func TestOrganizationCRUD(t *testing.T) {
 
 	// Update organization
 	newName := orgName + " Updated"
-	err = testClient.UpdateOrganization(ctx, orgID, newName, "Updated description", nil)
+	updatedOrg, err := testClient.UpdateOrganization(ctx, orgID, newName, "Updated description", nil)
 	require.NoError(t, err, "UpdateOrganization should succeed")
+	assert.Equal(t, newName, updatedOrg.Name)
 
 	// Verify update
-	updatedOrg, err := testClient.GetOrganization(ctx, orgID)
+	verifiedOrg, err := testClient.GetOrganization(ctx, orgID)
 	require.NoError(t, err)
-	assert.Equal(t, newName, updatedOrg.Name)
+	assert.Equal(t, newName, verifiedOrg.Name)
 
 	// List organizations
 	orgs, err := testClient.ListOrganizations(ctx)
@@ -133,13 +137,15 @@ func TestOrganizationMembership(t *testing.T) {
 
 	// Create user
 	username := fmt.Sprintf("member_%d", time.Now().UnixNano())
-	userID, err := testClient.CreateUser(ctx, username, "Password123!", "Member User", "")
+	createdUser, err := testClient.CreateUser(ctx, username, "Password123!", "Member User", "")
 	require.NoError(t, err)
+	userID := createdUser.ID
 
 	// Create organization
 	orgName := fmt.Sprintf("Membership Org %d", time.Now().UnixNano())
-	orgID, err := testClient.CreateOrganization(ctx, orgName, "")
+	createdOrg, err := testClient.CreateOrganization(ctx, orgName, "")
 	require.NoError(t, err)
+	orgID := createdOrg.ID
 	t.Cleanup(func() {
 		if err := testClient.DeleteOrganization(context.Background(), orgID); err != nil {
 			t.Logf("cleanup: failed to delete organization %s: %v", orgID, err)
@@ -183,14 +189,17 @@ func TestBatchOrganizationOperations(t *testing.T) {
 	ctx := context.Background()
 
 	// Create users
-	user1, err := testClient.CreateUser(ctx, fmt.Sprintf("batch1_%d", time.Now().UnixNano()), "Password123!", "", "")
+	user1Obj, err := testClient.CreateUser(ctx, fmt.Sprintf("batch1_%d", time.Now().UnixNano()), "Password123!", "", "")
 	require.NoError(t, err)
-	user2, err := testClient.CreateUser(ctx, fmt.Sprintf("batch2_%d", time.Now().UnixNano()), "Password123!", "", "")
+	user1 := user1Obj.ID
+	user2Obj, err := testClient.CreateUser(ctx, fmt.Sprintf("batch2_%d", time.Now().UnixNano()), "Password123!", "", "")
 	require.NoError(t, err)
+	user2 := user2Obj.ID
 
 	// Create organization
-	orgID, err := testClient.CreateOrganization(ctx, fmt.Sprintf("Batch Org %d", time.Now().UnixNano()), "")
+	createdOrg, err := testClient.CreateOrganization(ctx, fmt.Sprintf("Batch Org %d", time.Now().UnixNano()), "")
 	require.NoError(t, err)
+	orgID := createdOrg.ID
 	t.Cleanup(func() {
 		if err := testClient.DeleteOrganization(context.Background(), orgID); err != nil {
 			t.Logf("cleanup: failed to delete organization %s: %v", orgID, err)
@@ -207,8 +216,9 @@ func TestBatchOrganizationOperations(t *testing.T) {
 	assert.Len(t, members, 2, "Should have two members")
 
 	// Create role for batch assignment
-	roleID, err := testClient.CreateOrganizationRole(ctx, fmt.Sprintf("batch-role-%d", time.Now().UnixNano()), "Batch role", nil)
+	createdRole, err := testClient.CreateOrganizationRole(ctx, fmt.Sprintf("batch-role-%d", time.Now().UnixNano()), "Batch role", "", nil)
 	require.NoError(t, err)
+	roleID := createdRole.ID
 	t.Cleanup(func() {
 		if err := testClient.DeleteOrganizationRole(context.Background(), roleID); err != nil {
 			t.Logf("cleanup: failed to delete organization role %s: %v", roleID, err)
@@ -232,9 +242,10 @@ func TestOrganizationRoleCRUD(t *testing.T) {
 	roleName := fmt.Sprintf("Test Role %d", time.Now().UnixNano())
 
 	// Create role
-	roleID, err := testClient.CreateOrganizationRole(ctx, roleName, "Test role description", nil)
+	createdRole, err := testClient.CreateOrganizationRole(ctx, roleName, "Test role description", "", nil)
 	require.NoError(t, err, "CreateOrganizationRole should succeed")
-	assert.NotEmpty(t, roleID)
+	assert.NotEmpty(t, createdRole.ID)
+	roleID := createdRole.ID
 
 	// Get role
 	role, err := testClient.GetOrganizationRole(ctx, roleID)
@@ -244,7 +255,7 @@ func TestOrganizationRoleCRUD(t *testing.T) {
 
 	// Update role
 	newRoleName := roleName + " Updated"
-	err = testClient.UpdateOrganizationRole(ctx, roleID, newRoleName, "Updated description")
+	_, err = testClient.UpdateOrganizationRole(ctx, roleID, newRoleName, "Updated description")
 	require.NoError(t, err, "UpdateOrganizationRole should succeed")
 
 	// List roles
@@ -263,9 +274,10 @@ func TestOrganizationScopeCRUD(t *testing.T) {
 	scopeName := fmt.Sprintf("test:scope:%d", time.Now().UnixNano())
 
 	// Create scope
-	scopeID, err := testClient.CreateOrganizationScope(ctx, scopeName, "Test scope")
+	createdScope, err := testClient.CreateOrganizationScope(ctx, scopeName, "Test scope")
 	require.NoError(t, err, "CreateOrganizationScope should succeed")
-	assert.NotEmpty(t, scopeID)
+	assert.NotEmpty(t, createdScope.ID)
+	scopeID := createdScope.ID
 
 	// Get scope
 	scope, err := testClient.GetOrganizationScope(ctx, scopeID)
@@ -274,7 +286,7 @@ func TestOrganizationScopeCRUD(t *testing.T) {
 	assert.Equal(t, scopeName, scope.Name)
 
 	// Update scope
-	err = testClient.UpdateOrganizationScope(ctx, scopeID, "", "Updated description")
+	_, err = testClient.UpdateOrganizationScope(ctx, scopeID, "", "Updated description")
 	require.NoError(t, err, "UpdateOrganizationScope should succeed")
 
 	// List scopes
@@ -292,8 +304,9 @@ func TestRoleScopeOperations(t *testing.T) {
 	ctx := context.Background()
 
 	// Create scope
-	scopeID, err := testClient.CreateOrganizationScope(ctx, fmt.Sprintf("role:scope:%d", time.Now().UnixNano()), "")
+	createdScope, err := testClient.CreateOrganizationScope(ctx, fmt.Sprintf("role:scope:%d", time.Now().UnixNano()), "")
 	require.NoError(t, err)
+	scopeID := createdScope.ID
 	t.Cleanup(func() {
 		if err := testClient.DeleteOrganizationScope(context.Background(), scopeID); err != nil {
 			t.Logf("cleanup: failed to delete organization scope %s: %v", scopeID, err)
@@ -301,8 +314,9 @@ func TestRoleScopeOperations(t *testing.T) {
 	})
 
 	// Create role
-	roleID, err := testClient.CreateOrganizationRole(ctx, fmt.Sprintf("scope-role-%d", time.Now().UnixNano()), "", nil)
+	createdRole, err := testClient.CreateOrganizationRole(ctx, fmt.Sprintf("scope-role-%d", time.Now().UnixNano()), "", "", nil)
 	require.NoError(t, err)
+	roleID := createdRole.ID
 	t.Cleanup(func() {
 		if err := testClient.DeleteOrganizationRole(context.Background(), roleID); err != nil {
 			t.Logf("cleanup: failed to delete organization role %s: %v", roleID, err)
@@ -342,12 +356,14 @@ func TestUserRolesInOrganization(t *testing.T) {
 	ctx := context.Background()
 
 	// Create user
-	userID, err := testClient.CreateUser(ctx, fmt.Sprintf("roleuser_%d", time.Now().UnixNano()), "Password123!", "", "")
+	createdUser, err := testClient.CreateUser(ctx, fmt.Sprintf("roleuser_%d", time.Now().UnixNano()), "Password123!", "", "")
 	require.NoError(t, err)
+	userID := createdUser.ID
 
 	// Create organization
-	orgID, err := testClient.CreateOrganization(ctx, fmt.Sprintf("Role Test Org %d", time.Now().UnixNano()), "")
+	createdOrg, err := testClient.CreateOrganization(ctx, fmt.Sprintf("Role Test Org %d", time.Now().UnixNano()), "")
 	require.NoError(t, err)
+	orgID := createdOrg.ID
 	t.Cleanup(func() {
 		if err := testClient.DeleteOrganization(context.Background(), orgID); err != nil {
 			t.Logf("cleanup: failed to delete organization %s: %v", orgID, err)
@@ -355,8 +371,9 @@ func TestUserRolesInOrganization(t *testing.T) {
 	})
 
 	// Create role
-	roleID, err := testClient.CreateOrganizationRole(ctx, fmt.Sprintf("user-role-%d", time.Now().UnixNano()), "", nil)
+	createdRole, err := testClient.CreateOrganizationRole(ctx, fmt.Sprintf("user-role-%d", time.Now().UnixNano()), "", "", nil)
 	require.NoError(t, err)
+	roleID := createdRole.ID
 	t.Cleanup(func() {
 		if err := testClient.DeleteOrganizationRole(context.Background(), roleID); err != nil {
 			t.Logf("cleanup: failed to delete organization role %s: %v", roleID, err)
@@ -374,8 +391,9 @@ func TestUserRolesInOrganization(t *testing.T) {
 	assert.Equal(t, roleID, roles[0].ID)
 
 	// Update user roles (replace)
-	role2ID, err := testClient.CreateOrganizationRole(ctx, fmt.Sprintf("user-role2-%d", time.Now().UnixNano()), "", nil)
+	createdRole2, err := testClient.CreateOrganizationRole(ctx, fmt.Sprintf("user-role2-%d", time.Now().UnixNano()), "", "", nil)
 	require.NoError(t, err)
+	role2ID := createdRole2.ID
 	t.Cleanup(func() {
 		if err := testClient.DeleteOrganizationRole(context.Background(), role2ID); err != nil {
 			t.Logf("cleanup: failed to delete organization role %s: %v", role2ID, err)
@@ -399,9 +417,10 @@ func TestAPIResourceCRUD(t *testing.T) {
 	indicator := fmt.Sprintf("https://api.test.local/%d", time.Now().UnixNano())
 
 	// Create resource
-	resourceID, err := testClient.CreateAPIResource(ctx, resourceName, indicator)
+	createdResource, err := testClient.CreateAPIResource(ctx, resourceName, indicator)
 	require.NoError(t, err, "CreateAPIResource should succeed")
-	assert.NotEmpty(t, resourceID)
+	assert.NotEmpty(t, createdResource.ID)
+	resourceID := createdResource.ID
 
 	// Get resource
 	resource, err := testClient.GetAPIResource(ctx, resourceID)
@@ -412,7 +431,7 @@ func TestAPIResourceCRUD(t *testing.T) {
 
 	// Update resource
 	newName := resourceName + " Updated"
-	err = testClient.UpdateAPIResource(ctx, resourceID, newName, nil)
+	_, err = testClient.UpdateAPIResource(ctx, resourceID, newName, nil)
 	require.NoError(t, err, "UpdateAPIResource should succeed")
 
 	// List resources
@@ -430,8 +449,9 @@ func TestAPIResourceScopeCRUD(t *testing.T) {
 	ctx := context.Background()
 
 	// Create resource first
-	resourceID, err := testClient.CreateAPIResource(ctx, fmt.Sprintf("Scope Test API %d", time.Now().UnixNano()), fmt.Sprintf("https://api.scope.test/%d", time.Now().UnixNano()))
+	createdResource, err := testClient.CreateAPIResource(ctx, fmt.Sprintf("Scope Test API %d", time.Now().UnixNano()), fmt.Sprintf("https://api.scope.test/%d", time.Now().UnixNano()))
 	require.NoError(t, err)
+	resourceID := createdResource.ID
 	t.Cleanup(func() {
 		if err := testClient.DeleteAPIResource(context.Background(), resourceID); err != nil {
 			t.Logf("cleanup: failed to delete API resource %s: %v", resourceID, err)
@@ -441,9 +461,10 @@ func TestAPIResourceScopeCRUD(t *testing.T) {
 	scopeName := fmt.Sprintf("read:%d", time.Now().UnixNano())
 
 	// Create scope
-	scopeID, err := testClient.CreateAPIResourceScope(ctx, resourceID, scopeName, "Read access")
+	createdScope, err := testClient.CreateAPIResourceScope(ctx, resourceID, scopeName, "Read access")
 	require.NoError(t, err, "CreateAPIResourceScope should succeed")
-	assert.NotEmpty(t, scopeID)
+	assert.NotEmpty(t, createdScope.ID)
+	scopeID := createdScope.ID
 
 	// Get scope
 	scope, err := testClient.GetAPIResourceScope(ctx, resourceID, scopeID)
@@ -452,7 +473,7 @@ func TestAPIResourceScopeCRUD(t *testing.T) {
 	assert.Equal(t, scopeName, scope.Name)
 
 	// Update scope
-	err = testClient.UpdateAPIResourceScope(ctx, resourceID, scopeID, "", "Updated description")
+	_, err = testClient.UpdateAPIResourceScope(ctx, resourceID, scopeID, "", "Updated description")
 	require.NoError(t, err, "UpdateAPIResourceScope should succeed")
 
 	// List scopes
@@ -475,14 +496,15 @@ func TestApplicationOperations(t *testing.T) {
 	assert.NotEmpty(t, apps, "Should have at least our M2M app")
 
 	// Create SPA application
-	appID, err := testClient.CreateApplication(ctx, models.ApplicationCreate{
+	createdApp, err := testClient.CreateApplication(ctx, models.ApplicationCreate{
 		Name:         fmt.Sprintf("Test SPA %d", time.Now().UnixNano()),
 		Description:  "Test SPA application",
 		Type:         models.ApplicationTypeSPA,
 		RedirectURIs: []string{"http://localhost:3000/callback"},
 	})
 	require.NoError(t, err, "CreateApplication should succeed")
-	assert.NotEmpty(t, appID)
+	assert.NotEmpty(t, createdApp.ID)
+	appID := createdApp.ID
 
 	// Verify app appears in list
 	apps, err = testClient.ListApplications(ctx)
@@ -503,8 +525,9 @@ func TestOrganizationInvitations(t *testing.T) {
 	ctx := context.Background()
 
 	// Create organization
-	orgID, err := testClient.CreateOrganization(ctx, fmt.Sprintf("Invite Org %d", time.Now().UnixNano()), "")
+	createdOrg, err := testClient.CreateOrganization(ctx, fmt.Sprintf("Invite Org %d", time.Now().UnixNano()), "")
 	require.NoError(t, err)
+	orgID := createdOrg.ID
 	t.Cleanup(func() {
 		if err := testClient.DeleteOrganization(context.Background(), orgID); err != nil {
 			t.Logf("cleanup: failed to delete organization %s: %v", orgID, err)
@@ -515,9 +538,10 @@ func TestOrganizationInvitations(t *testing.T) {
 	expiresAt := time.Now().Add(24 * time.Hour).UnixMilli()
 
 	// Create invitation
-	invitationID, err := testClient.CreateOrganizationInvitation(ctx, orgID, "", inviteeEmail, nil, expiresAt)
+	createdInvitation, err := testClient.CreateOrganizationInvitation(ctx, orgID, "", inviteeEmail, nil, expiresAt)
 	require.NoError(t, err, "CreateOrganizationInvitation should succeed")
-	assert.NotEmpty(t, invitationID)
+	assert.NotEmpty(t, createdInvitation.ID)
+	invitationID := createdInvitation.ID
 
 	// Get invitation
 	invitation, err := testClient.GetOrganizationInvitation(ctx, invitationID)
@@ -617,19 +641,22 @@ func TestListOrganizationMembersWithRoles(t *testing.T) {
 	ctx := context.Background()
 
 	// Create user, org, and role
-	userID, err := testClient.CreateUser(ctx, fmt.Sprintf("rolemember_%d", time.Now().UnixNano()), "Password123!", "", "")
+	createdUser, err := testClient.CreateUser(ctx, fmt.Sprintf("rolemember_%d", time.Now().UnixNano()), "Password123!", "", "")
 	require.NoError(t, err)
+	userID := createdUser.ID
 
-	orgID, err := testClient.CreateOrganization(ctx, fmt.Sprintf("MemberRole Org %d", time.Now().UnixNano()), "")
+	createdOrg, err := testClient.CreateOrganization(ctx, fmt.Sprintf("MemberRole Org %d", time.Now().UnixNano()), "")
 	require.NoError(t, err)
+	orgID := createdOrg.ID
 	t.Cleanup(func() {
 		if err := testClient.DeleteOrganization(context.Background(), orgID); err != nil {
 			t.Logf("cleanup: failed to delete organization %s: %v", orgID, err)
 		}
 	})
 
-	roleID, err := testClient.CreateOrganizationRole(ctx, fmt.Sprintf("member-role-%d", time.Now().UnixNano()), "", nil)
+	createdRole, err := testClient.CreateOrganizationRole(ctx, fmt.Sprintf("member-role-%d", time.Now().UnixNano()), "", "", nil)
 	require.NoError(t, err)
+	roleID := createdRole.ID
 	t.Cleanup(func() {
 		if err := testClient.DeleteOrganizationRole(context.Background(), roleID); err != nil {
 			t.Logf("cleanup: failed to delete organization role %s: %v", roleID, err)
@@ -656,24 +683,27 @@ func TestAssignResourceScopesToOrganizationRole(t *testing.T) {
 	ctx := context.Background()
 
 	// Create API resource with scope
-	resourceID, err := testClient.CreateAPIResource(ctx,
+	createdResource, err := testClient.CreateAPIResource(ctx,
 		fmt.Sprintf("Resource Scope Test %d", time.Now().UnixNano()),
 		fmt.Sprintf("https://api.resource-scope.test/%d", time.Now().UnixNano()))
 	require.NoError(t, err)
+	resourceID := createdResource.ID
 	t.Cleanup(func() {
 		if err := testClient.DeleteAPIResource(context.Background(), resourceID); err != nil {
 			t.Logf("cleanup: failed to delete API resource %s: %v", resourceID, err)
 		}
 	})
 
-	scopeID, err := testClient.CreateAPIResourceScope(ctx, resourceID,
+	createdScope, err := testClient.CreateAPIResourceScope(ctx, resourceID,
 		fmt.Sprintf("read:%d", time.Now().UnixNano()), "Read access")
 	require.NoError(t, err)
+	scopeID := createdScope.ID
 
 	// Create organization role
-	roleID, err := testClient.CreateOrganizationRole(ctx,
-		fmt.Sprintf("resource-scope-role-%d", time.Now().UnixNano()), "", nil)
+	createdRole, err := testClient.CreateOrganizationRole(ctx,
+		fmt.Sprintf("resource-scope-role-%d", time.Now().UnixNano()), "", "", nil)
 	require.NoError(t, err)
+	roleID := createdRole.ID
 	t.Cleanup(func() {
 		if err := testClient.DeleteOrganizationRole(context.Background(), roleID); err != nil {
 			t.Logf("cleanup: failed to delete organization role %s: %v", roleID, err)
@@ -690,9 +720,10 @@ func TestSendInvitationMessage(t *testing.T) {
 	ctx := context.Background()
 
 	// Create organization
-	orgID, err := testClient.CreateOrganization(ctx,
+	createdOrg, err := testClient.CreateOrganization(ctx,
 		fmt.Sprintf("Invite Message Org %d", time.Now().UnixNano()), "")
 	require.NoError(t, err)
+	orgID := createdOrg.ID
 	t.Cleanup(func() {
 		if err := testClient.DeleteOrganization(context.Background(), orgID); err != nil {
 			t.Logf("cleanup: failed to delete organization %s: %v", orgID, err)
@@ -703,8 +734,9 @@ func TestSendInvitationMessage(t *testing.T) {
 	inviteeEmail := fmt.Sprintf("invite_msg_%d@test.local", time.Now().UnixNano())
 	expiresAt := time.Now().Add(24 * time.Hour).UnixMilli()
 
-	invitationID, err := testClient.CreateOrganizationInvitation(ctx, orgID, "", inviteeEmail, nil, expiresAt)
+	createdInvitation, err := testClient.CreateOrganizationInvitation(ctx, orgID, "", inviteeEmail, nil, expiresAt)
 	require.NoError(t, err)
+	invitationID := createdInvitation.ID
 	t.Cleanup(func() {
 		if err := testClient.DeleteOrganizationInvitation(context.Background(), invitationID); err != nil {
 			t.Logf("cleanup: failed to delete invitation %s: %v", invitationID, err)
@@ -726,9 +758,10 @@ func TestGetOrganizationRoleScopes(t *testing.T) {
 	ctx := context.Background()
 
 	// Create scope
-	scopeID, err := testClient.CreateOrganizationScope(ctx,
+	createdScope, err := testClient.CreateOrganizationScope(ctx,
 		fmt.Sprintf("direct:scope:%d", time.Now().UnixNano()), "Direct scope test")
 	require.NoError(t, err)
+	scopeID := createdScope.ID
 	t.Cleanup(func() {
 		if err := testClient.DeleteOrganizationScope(context.Background(), scopeID); err != nil {
 			t.Logf("cleanup: failed to delete organization scope %s: %v", scopeID, err)
@@ -736,9 +769,10 @@ func TestGetOrganizationRoleScopes(t *testing.T) {
 	})
 
 	// Create role with scope
-	roleID, err := testClient.CreateOrganizationRole(ctx,
-		fmt.Sprintf("direct-scope-role-%d", time.Now().UnixNano()), "", []string{scopeID})
+	createdRole, err := testClient.CreateOrganizationRole(ctx,
+		fmt.Sprintf("direct-scope-role-%d", time.Now().UnixNano()), "", "", []string{scopeID})
 	require.NoError(t, err)
+	roleID := createdRole.ID
 	t.Cleanup(func() {
 		if err := testClient.DeleteOrganizationRole(context.Background(), roleID); err != nil {
 			t.Logf("cleanup: failed to delete organization role %s: %v", roleID, err)
@@ -748,6 +782,358 @@ func TestGetOrganizationRoleScopes(t *testing.T) {
 	// Get scopes directly
 	scopes, err := testClient.GetOrganizationRoleScopes(ctx, roleID)
 	require.NoError(t, err, "GetOrganizationRoleScopes should succeed")
+	assert.Len(t, scopes, 1)
+	assert.Equal(t, scopeID, scopes[0].ID)
+}
+
+// TestOrganizationApplications tests organization application operations (M2M apps in orgs)
+func TestOrganizationApplications(t *testing.T) {
+	ctx := context.Background()
+
+	// Create organization
+	createdOrg, err := testClient.CreateOrganization(ctx,
+		fmt.Sprintf("App Test Org %d", time.Now().UnixNano()), "Organization for app testing")
+	require.NoError(t, err)
+	orgID := createdOrg.ID
+	t.Cleanup(func() {
+		if err := testClient.DeleteOrganization(context.Background(), orgID); err != nil {
+			t.Logf("cleanup: failed to delete organization %s: %v", orgID, err)
+		}
+	})
+
+	// Create M2M application (only M2M apps can be added to organizations)
+	createdApp, err := testClient.CreateApplication(ctx, models.ApplicationCreate{
+		Name:        fmt.Sprintf("Test M2M App %d", time.Now().UnixNano()),
+		Description: "Test M2M application for org",
+		Type:        models.ApplicationTypeMachineToMachine,
+	})
+	require.NoError(t, err, "CreateApplication should succeed")
+	appID := createdApp.ID
+
+	// Create M2M organization role (only M2M roles can be assigned to M2M apps)
+	createdRole, err := testClient.CreateOrganizationRole(ctx,
+		fmt.Sprintf("app-test-role-%d", time.Now().UnixNano()), "Role for M2M app", models.OrganizationRoleTypeMachineToMachine, nil)
+	require.NoError(t, err)
+	roleID := createdRole.ID
+	t.Cleanup(func() {
+		if err := testClient.DeleteOrganizationRole(context.Background(), roleID); err != nil {
+			t.Logf("cleanup: failed to delete organization role %s: %v", roleID, err)
+		}
+	})
+
+	// Add application to organization
+	err = testClient.AddOrganizationApplications(ctx, orgID, []string{appID})
+	require.NoError(t, err, "AddOrganizationApplications should succeed")
+
+	// List organization applications
+	apps, err := testClient.ListOrganizationApplications(ctx, orgID)
+	require.NoError(t, err, "ListOrganizationApplications should succeed")
+	assert.Len(t, apps, 1)
+	assert.Equal(t, appID, apps[0].ID)
+
+	// Assign roles to application
+	err = testClient.AssignOrganizationApplicationRoles(ctx, orgID, appID, []string{roleID})
+	require.NoError(t, err, "AssignOrganizationApplicationRoles should succeed")
+
+	// Get application roles
+	roles, err := testClient.GetOrganizationApplicationRoles(ctx, orgID, appID)
+	require.NoError(t, err, "GetOrganizationApplicationRoles should succeed")
+	assert.Len(t, roles, 1)
+	assert.Equal(t, roleID, roles[0].ID)
+
+	// Remove roles from application
+	err = testClient.RemoveOrganizationApplicationRoles(ctx, orgID, appID, []string{roleID})
+	require.NoError(t, err, "RemoveOrganizationApplicationRoles should succeed")
+
+	// Verify roles removed
+	roles, err = testClient.GetOrganizationApplicationRoles(ctx, orgID, appID)
+	require.NoError(t, err)
+	assert.Len(t, roles, 0)
+
+	// Remove application from organization
+	err = testClient.RemoveOrganizationApplication(ctx, orgID, appID)
+	require.NoError(t, err, "RemoveOrganizationApplication should succeed")
+
+	// Verify application removed
+	apps, err = testClient.ListOrganizationApplications(ctx, orgID)
+	require.NoError(t, err)
+	assert.Len(t, apps, 0)
+}
+
+// TestRoleCRUD tests global/tenant-level role lifecycle
+func TestRoleCRUD(t *testing.T) {
+	ctx := context.Background()
+	roleName := fmt.Sprintf("Test Global Role %d", time.Now().UnixNano())
+
+	// Create role
+	createdRole, err := testClient.CreateRole(ctx, roleName, "Test global role description", models.RoleTypeUser, nil)
+	require.NoError(t, err, "CreateRole should succeed")
+	assert.NotEmpty(t, createdRole.ID)
+	assert.Equal(t, roleName, createdRole.Name)
+	assert.Equal(t, models.RoleTypeUser, createdRole.Type)
+	roleID := createdRole.ID
+	t.Cleanup(func() {
+		if err := testClient.DeleteRole(context.Background(), roleID); err != nil {
+			t.Logf("cleanup: failed to delete role %s: %v", roleID, err)
+		}
+	})
+
+	// Get role
+	role, err := testClient.GetRole(ctx, roleID)
+	require.NoError(t, err, "GetRole should succeed")
+	assert.Equal(t, roleID, role.ID)
+	assert.Equal(t, roleName, role.Name)
+	assert.Equal(t, "Test global role description", role.Description)
+
+	// Update role
+	newRoleName := roleName + " Updated"
+	updatedRole, err := testClient.UpdateRole(ctx, roleID, newRoleName, "Updated description", nil)
+	require.NoError(t, err, "UpdateRole should succeed")
+	assert.Equal(t, newRoleName, updatedRole.Name)
+	assert.Equal(t, "Updated description", updatedRole.Description)
+
+	// List roles
+	roles, err := testClient.ListRoles(ctx)
+	require.NoError(t, err, "ListRoles should succeed")
+	assert.NotEmpty(t, roles)
+
+	// Verify our role is in the list
+	found := false
+	for _, r := range roles {
+		if r.ID == roleID {
+			found = true
+			assert.Equal(t, newRoleName, r.Name)
+			break
+		}
+	}
+	assert.True(t, found, "Created role should be in the list")
+
+	// Test update with isDefault
+	isDefault := true
+	_, err = testClient.UpdateRole(ctx, roleID, "", "", &isDefault)
+	require.NoError(t, err, "UpdateRole with isDefault should succeed")
+
+	role, err = testClient.GetRole(ctx, roleID)
+	require.NoError(t, err)
+	assert.True(t, role.IsDefault)
+}
+
+// TestRoleScopes tests assigning/removing API resource scopes from global roles
+func TestRoleScopes(t *testing.T) {
+	ctx := context.Background()
+
+	// Create API resource with scope
+	createdResource, err := testClient.CreateAPIResource(ctx,
+		fmt.Sprintf("Role Scope Test API %d", time.Now().UnixNano()),
+		fmt.Sprintf("https://api.role-scope.test/%d", time.Now().UnixNano()))
+	require.NoError(t, err)
+	resourceID := createdResource.ID
+	t.Cleanup(func() {
+		if err := testClient.DeleteAPIResource(context.Background(), resourceID); err != nil {
+			t.Logf("cleanup: failed to delete API resource %s: %v", resourceID, err)
+		}
+	})
+
+	createdScope, err := testClient.CreateAPIResourceScope(ctx, resourceID,
+		fmt.Sprintf("read:%d", time.Now().UnixNano()), "Read access")
+	require.NoError(t, err)
+	scopeID := createdScope.ID
+
+	createdScope2, err := testClient.CreateAPIResourceScope(ctx, resourceID,
+		fmt.Sprintf("write:%d", time.Now().UnixNano()), "Write access")
+	require.NoError(t, err)
+	scope2ID := createdScope2.ID
+
+	// Create role
+	createdRole, err := testClient.CreateRole(ctx,
+		fmt.Sprintf("scope-test-role-%d", time.Now().UnixNano()), "Role for scope testing", models.RoleTypeUser, nil)
+	require.NoError(t, err)
+	roleID := createdRole.ID
+	t.Cleanup(func() {
+		if err := testClient.DeleteRole(context.Background(), roleID); err != nil {
+			t.Logf("cleanup: failed to delete role %s: %v", roleID, err)
+		}
+	})
+
+	// Assign scopes to role
+	err = testClient.AssignRoleScopes(ctx, roleID, []string{scopeID})
+	require.NoError(t, err, "AssignRoleScopes should succeed")
+
+	// List role scopes
+	scopes, err := testClient.ListRoleScopes(ctx, roleID)
+	require.NoError(t, err, "ListRoleScopes should succeed")
+	assert.Len(t, scopes, 1)
+	assert.Equal(t, scopeID, scopes[0].ID)
+
+	// Assign another scope
+	err = testClient.AssignRoleScopes(ctx, roleID, []string{scope2ID})
+	require.NoError(t, err)
+
+	scopes, err = testClient.ListRoleScopes(ctx, roleID)
+	require.NoError(t, err)
+	assert.Len(t, scopes, 2)
+
+	// Remove scope from role
+	err = testClient.RemoveRoleScope(ctx, roleID, scopeID)
+	require.NoError(t, err, "RemoveRoleScope should succeed")
+
+	// Verify removal
+	scopes, err = testClient.ListRoleScopes(ctx, roleID)
+	require.NoError(t, err)
+	assert.Len(t, scopes, 1)
+	assert.Equal(t, scope2ID, scopes[0].ID)
+}
+
+// TestRoleUsers tests assigning/removing users from global roles
+func TestRoleUsers(t *testing.T) {
+	ctx := context.Background()
+
+	// Create users
+	createdUser1, err := testClient.CreateUser(ctx, fmt.Sprintf("roleuser1_%d", time.Now().UnixNano()), "Password123!", "Role User 1", "")
+	require.NoError(t, err)
+	user1ID := createdUser1.ID
+
+	createdUser2, err := testClient.CreateUser(ctx, fmt.Sprintf("roleuser2_%d", time.Now().UnixNano()), "Password123!", "Role User 2", "")
+	require.NoError(t, err)
+	user2ID := createdUser2.ID
+
+	// Create role
+	createdRole, err := testClient.CreateRole(ctx,
+		fmt.Sprintf("user-test-role-%d", time.Now().UnixNano()), "Role for user testing", models.RoleTypeUser, nil)
+	require.NoError(t, err)
+	roleID := createdRole.ID
+	t.Cleanup(func() {
+		if err := testClient.DeleteRole(context.Background(), roleID); err != nil {
+			t.Logf("cleanup: failed to delete role %s: %v", roleID, err)
+		}
+	})
+
+	// Assign role to users
+	err = testClient.AssignRoleToUsers(ctx, roleID, []string{user1ID, user2ID})
+	require.NoError(t, err, "AssignRoleToUsers should succeed")
+
+	// List role users
+	users, err := testClient.ListRoleUsers(ctx, roleID)
+	require.NoError(t, err, "ListRoleUsers should succeed")
+	assert.Len(t, users, 2)
+
+	// Verify both users are in the list
+	userIDs := make(map[string]bool)
+	for _, u := range users {
+		userIDs[u.ID] = true
+	}
+	assert.True(t, userIDs[user1ID], "User 1 should be in the list")
+	assert.True(t, userIDs[user2ID], "User 2 should be in the list")
+
+	// Remove user from role
+	err = testClient.RemoveRoleFromUser(ctx, roleID, user1ID)
+	require.NoError(t, err, "RemoveRoleFromUser should succeed")
+
+	// Verify removal
+	users, err = testClient.ListRoleUsers(ctx, roleID)
+	require.NoError(t, err)
+	assert.Len(t, users, 1)
+	assert.Equal(t, user2ID, users[0].ID)
+}
+
+// TestRoleApplications tests assigning/removing M2M applications from global roles
+func TestRoleApplications(t *testing.T) {
+	ctx := context.Background()
+
+	// Create M2M applications
+	createdApp1, err := testClient.CreateApplication(ctx, models.ApplicationCreate{
+		Name:        fmt.Sprintf("Role Test M2M App 1 %d", time.Now().UnixNano()),
+		Description: "Test M2M app 1 for role testing",
+		Type:        models.ApplicationTypeMachineToMachine,
+	})
+	require.NoError(t, err)
+	app1ID := createdApp1.ID
+
+	createdApp2, err := testClient.CreateApplication(ctx, models.ApplicationCreate{
+		Name:        fmt.Sprintf("Role Test M2M App 2 %d", time.Now().UnixNano()),
+		Description: "Test M2M app 2 for role testing",
+		Type:        models.ApplicationTypeMachineToMachine,
+	})
+	require.NoError(t, err)
+	app2ID := createdApp2.ID
+
+	// Create M2M role (must be MachineToMachine type to assign to M2M apps)
+	createdRole, err := testClient.CreateRole(ctx,
+		fmt.Sprintf("m2m-app-test-role-%d", time.Now().UnixNano()), "M2M Role for app testing", models.RoleTypeMachineToMachine, nil)
+	require.NoError(t, err)
+	roleID := createdRole.ID
+	t.Cleanup(func() {
+		if err := testClient.DeleteRole(context.Background(), roleID); err != nil {
+			t.Logf("cleanup: failed to delete role %s: %v", roleID, err)
+		}
+	})
+
+	// Assign role to applications
+	err = testClient.AssignRoleToApplications(ctx, roleID, []string{app1ID, app2ID})
+	require.NoError(t, err, "AssignRoleToApplications should succeed")
+
+	// List role applications
+	apps, err := testClient.ListRoleApplications(ctx, roleID)
+	require.NoError(t, err, "ListRoleApplications should succeed")
+	assert.Len(t, apps, 2)
+
+	// Verify both apps are in the list
+	appIDs := make(map[string]bool)
+	for _, a := range apps {
+		appIDs[a.ID] = true
+	}
+	assert.True(t, appIDs[app1ID], "App 1 should be in the list")
+	assert.True(t, appIDs[app2ID], "App 2 should be in the list")
+
+	// Remove application from role
+	err = testClient.RemoveRoleFromApplication(ctx, roleID, app1ID)
+	require.NoError(t, err, "RemoveRoleFromApplication should succeed")
+
+	// Verify removal
+	apps, err = testClient.ListRoleApplications(ctx, roleID)
+	require.NoError(t, err)
+	assert.Len(t, apps, 1)
+	assert.Equal(t, app2ID, apps[0].ID)
+}
+
+// TestCreateRoleWithScopes tests creating a role with scopes assigned at creation time
+func TestCreateRoleWithScopes(t *testing.T) {
+	ctx := context.Background()
+
+	// Create API resource with scope
+	createdResource, err := testClient.CreateAPIResource(ctx,
+		fmt.Sprintf("Role Create Scope Test %d", time.Now().UnixNano()),
+		fmt.Sprintf("https://api.role-create-scope.test/%d", time.Now().UnixNano()))
+	require.NoError(t, err)
+	resourceID := createdResource.ID
+	t.Cleanup(func() {
+		if err := testClient.DeleteAPIResource(context.Background(), resourceID); err != nil {
+			t.Logf("cleanup: failed to delete API resource %s: %v", resourceID, err)
+		}
+	})
+
+	createdScope, err := testClient.CreateAPIResourceScope(ctx, resourceID,
+		fmt.Sprintf("manage:%d", time.Now().UnixNano()), "Manage access")
+	require.NoError(t, err)
+	scopeID := createdScope.ID
+
+	// Create role with scope
+	createdRole, err := testClient.CreateRole(ctx,
+		fmt.Sprintf("scope-at-create-role-%d", time.Now().UnixNano()),
+		"Role with scope at creation",
+		models.RoleTypeUser,
+		[]string{scopeID})
+	require.NoError(t, err, "CreateRole with scopes should succeed")
+	roleID := createdRole.ID
+	t.Cleanup(func() {
+		if err := testClient.DeleteRole(context.Background(), roleID); err != nil {
+			t.Logf("cleanup: failed to delete role %s: %v", roleID, err)
+		}
+	})
+
+	// Verify scope is assigned
+	scopes, err := testClient.ListRoleScopes(ctx, roleID)
+	require.NoError(t, err)
 	assert.Len(t, scopes, 1)
 	assert.Equal(t, scopeID, scopes[0].ID)
 }
