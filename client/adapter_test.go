@@ -266,8 +266,8 @@ func TestGetUser_Success(t *testing.T) {
 	if user.Name != "Test User" {
 		t.Errorf("expected name 'Test User', got %q", user.Name)
 	}
-	if user.Email != "test@example.com" {
-		t.Errorf("expected email 'test@example.com', got %q", user.Email)
+	if user.PrimaryEmail != "test@example.com" {
+		t.Errorf("expected email 'test@example.com', got %q", user.PrimaryEmail)
 	}
 }
 
