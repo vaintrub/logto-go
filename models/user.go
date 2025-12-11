@@ -83,10 +83,24 @@ type UserUpdate struct {
 
 	// Custom data - merged with existing data
 	CustomData map[string]interface{} `json:"customData,omitempty"`
+
+	// Profile - detailed user profile fields (familyName, givenName, etc.)
+	Profile *UserProfileUpdate `json:"profile,omitempty"`
+}
+
+// UserCreate represents fields for creating a new user.
+type UserCreate struct {
+	Username     string                 `json:"username"`
+	Password     string                 `json:"password"`
+	Name         string                 `json:"name,omitempty"`
+	PrimaryEmail string                 `json:"primaryEmail,omitempty"`
+	PrimaryPhone string                 `json:"primaryPhone,omitempty"`
+	Avatar       string                 `json:"avatar,omitempty"`
+	CustomData   map[string]interface{} `json:"customData,omitempty"`
+	Profile      *UserProfileUpdate     `json:"profile,omitempty"`
 }
 
 // UserProfileUpdate represents fields for updating user profile.
-// PATCH /api/users/{userId}/profile
 type UserProfileUpdate struct {
 	FamilyName        *string         `json:"familyName,omitempty"`
 	GivenName         *string         `json:"givenName,omitempty"`
@@ -100,4 +114,9 @@ type UserProfileUpdate struct {
 	Zoneinfo          *string         `json:"zoneinfo,omitempty"`
 	Locale            *string         `json:"locale,omitempty"`
 	Address           *ProfileAddress `json:"address,omitempty"`
+}
+
+// UserPasswordUpdate represents fields for updating a user's password.
+type UserPasswordUpdate struct {
+	Password string `json:"password"`
 }

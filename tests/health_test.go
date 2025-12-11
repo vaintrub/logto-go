@@ -8,6 +8,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/vaintrub/logto-go/models"
 )
 
 // TestPing tests the Ping endpoint
@@ -38,8 +40,9 @@ func TestGetOrganizationToken(t *testing.T) {
 	ctx := context.Background()
 
 	// Create an organization for testing
-	org, err := testClient.CreateOrganization(ctx,
-		fmt.Sprintf("OrgToken Test Org %d", time.Now().UnixNano()), "")
+	org, err := testClient.CreateOrganization(ctx, models.OrganizationCreate{
+		Name: fmt.Sprintf("OrgToken Test Org %d", time.Now().UnixNano()),
+	})
 	require.NoError(t, err, "CreateOrganization should succeed")
 	t.Cleanup(func() {
 		if err := testClient.DeleteOrganization(context.Background(), org.ID); err != nil {
@@ -60,8 +63,7 @@ func TestGetOrganizationToken(t *testing.T) {
 	result, err := testClient.GetOrganizationToken(ctx, org.ID)
 	if err != nil {
 		// Expected if M2M app is not added to the organization
-		t.Logf("GetOrganizationToken returned error (expected if M2M app not in org): %v", err)
-		return
+		t.Skipf("GetOrganizationToken skipped (M2M app not in org): %v", err)
 	}
 
 	// If we got here, the M2M app must be properly configured

@@ -19,7 +19,12 @@ func TestUserCRUD(t *testing.T) {
 	email := fmt.Sprintf("testuser%d@test.local", time.Now().UnixNano())
 
 	// Create user
-	createdUser, err := testClient.CreateUser(ctx, username, "Password123!", "Test User", email)
+	createdUser, err := testClient.CreateUser(ctx, models.UserCreate{
+		Username:     username,
+		Password:     "Password123!",
+		Name:         "Test User",
+		PrimaryEmail: email,
+	})
 	require.NoError(t, err, "CreateUser should succeed")
 	assert.NotEmpty(t, createdUser.ID, "User ID should not be empty")
 	userID := createdUser.ID
@@ -48,8 +53,10 @@ func TestUserCRUD(t *testing.T) {
 	assert.Equal(t, newName, verifiedUser.Name)
 
 	// Update custom data
-	_, err = testClient.UpdateUserCustomData(ctx, userID, map[string]interface{}{"key": "value"})
-	require.NoError(t, err, "UpdateUserCustomData should succeed")
+	_, err = testClient.UpdateUser(ctx, userID, models.UserUpdate{
+		CustomData: map[string]interface{}{"key": "value"},
+	})
+	require.NoError(t, err, "UpdateUser with CustomData should succeed")
 
 	// List users
 	users, err := testClient.ListUsers(ctx)
@@ -73,20 +80,25 @@ func TestUpdateUserProfile(t *testing.T) {
 	username := fmt.Sprintf("profileuser_%d", time.Now().UnixNano())
 
 	// Create user
-	createdUser, err := testClient.CreateUser(ctx, username, "Password123!", "", "")
+	createdUser, err := testClient.CreateUser(ctx, models.UserCreate{
+		Username: username,
+		Password: "Password123!",
+	})
 	require.NoError(t, err, "CreateUser should succeed")
 	userID := createdUser.ID
 
-	// Update profile
+	// Update profile using UpdateUser with Profile field
 	familyName := "Smith"
 	givenName := "John"
 	nickname := "Johnny"
-	updatedUser, err := testClient.UpdateUserProfile(ctx, userID, models.UserProfileUpdate{
-		FamilyName: &familyName,
-		GivenName:  &givenName,
-		Nickname:   &nickname,
+	updatedUser, err := testClient.UpdateUser(ctx, userID, models.UserUpdate{
+		Profile: &models.UserProfileUpdate{
+			FamilyName: &familyName,
+			GivenName:  &givenName,
+			Nickname:   &nickname,
+		},
 	})
-	require.NoError(t, err, "UpdateUserProfile should succeed")
+	require.NoError(t, err, "UpdateUser with Profile should succeed")
 
 	// Verify profile was updated
 	require.NotNil(t, updatedUser.Profile, "Profile should not be nil")
@@ -108,7 +120,11 @@ func TestDeleteUser(t *testing.T) {
 	username := fmt.Sprintf("deleteuser_%d", time.Now().UnixNano())
 
 	// Create user
-	createdUser, err := testClient.CreateUser(ctx, username, "Password123!", "User to Delete", "")
+	createdUser, err := testClient.CreateUser(ctx, models.UserCreate{
+		Username: username,
+		Password: "Password123!",
+		Name:     "User to Delete",
+	})
 	require.NoError(t, err)
 	userID := createdUser.ID
 
@@ -132,7 +148,10 @@ func TestUserPassword(t *testing.T) {
 	initialPassword := "Password123!"
 
 	// Create user with password
-	createdUser, err := testClient.CreateUser(ctx, username, initialPassword, "", "")
+	createdUser, err := testClient.CreateUser(ctx, models.UserCreate{
+		Username: username,
+		Password: initialPassword,
+	})
 	require.NoError(t, err)
 	userID := createdUser.ID
 
@@ -153,7 +172,7 @@ func TestUserPassword(t *testing.T) {
 
 	// Update password
 	newPassword := "NewPassword456!"
-	err = testClient.UpdateUserPassword(ctx, userID, newPassword)
+	err = testClient.UpdateUserPassword(ctx, userID, models.UserPasswordUpdate{Password: newPassword})
 	require.NoError(t, err, "UpdateUserPassword should succeed")
 
 	// Verify old password no longer works
@@ -173,7 +192,10 @@ func TestSuspendUser(t *testing.T) {
 	username := fmt.Sprintf("suspenduser_%d", time.Now().UnixNano())
 
 	// Create user
-	createdUser, err := testClient.CreateUser(ctx, username, "Password123!", "", "")
+	createdUser, err := testClient.CreateUser(ctx, models.UserCreate{
+		Username: username,
+		Password: "Password123!",
+	})
 	require.NoError(t, err)
 	userID := createdUser.ID
 
@@ -210,6 +232,6 @@ func TestValidationErrorsUsers(t *testing.T) {
 	assert.Error(t, err, "GetUser with empty ID should fail")
 
 	// Empty username should fail
-	_, err = testClient.CreateUser(ctx, "", "password", "", "")
+	_, err = testClient.CreateUser(ctx, models.UserCreate{Password: "password"})
 	assert.Error(t, err, "CreateUser with empty username should fail")
 }

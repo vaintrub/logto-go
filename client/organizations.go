@@ -104,15 +104,15 @@ func (a *Adapter) ListUserOrganizations(ctx context.Context, userID string) ([]m
 }
 
 // CreateOrganization creates a new organization in Logto
-func (a *Adapter) CreateOrganization(ctx context.Context, name, description string) (*models.Organization, error) {
-	if name == "" {
+func (a *Adapter) CreateOrganization(ctx context.Context, org models.OrganizationCreate) (*models.Organization, error) {
+	if org.Name == "" {
 		return nil, &ValidationError{Field: "name", Message: "cannot be empty"}
 	}
 
 	body, _, err := a.doRequest(ctx, requestConfig{
 		method:      http.MethodPost,
 		path:        "/api/organizations",
-		body:        map[string]string{"name": name, "description": description},
+		body:        org,
 		expectCodes: []int{http.StatusCreated, http.StatusOK},
 	})
 	if err != nil {
@@ -123,27 +123,16 @@ func (a *Adapter) CreateOrganization(ctx context.Context, name, description stri
 }
 
 // UpdateOrganization updates organization details
-func (a *Adapter) UpdateOrganization(ctx context.Context, orgID string, name, description string, customData map[string]interface{}) (*models.Organization, error) {
+func (a *Adapter) UpdateOrganization(ctx context.Context, orgID string, update models.OrganizationUpdate) (*models.Organization, error) {
 	if orgID == "" {
 		return nil, &ValidationError{Field: "orgID", Message: "cannot be empty"}
-	}
-
-	payload := make(map[string]interface{})
-	if name != "" {
-		payload["name"] = name
-	}
-	if description != "" {
-		payload["description"] = description
-	}
-	if customData != nil {
-		payload["customData"] = customData
 	}
 
 	body, _, err := a.doRequest(ctx, requestConfig{
 		method:      http.MethodPatch,
 		path:        "/api/organizations/%s",
 		pathParams:  []string{orgID},
-		body:        payload,
+		body:        update,
 		expectCodes: []int{http.StatusOK},
 	})
 	if err != nil {

@@ -8,6 +8,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/vaintrub/logto-go/models"
 )
 
 // TestOrganizationCRUD tests organization lifecycle
@@ -16,7 +18,10 @@ func TestOrganizationCRUD(t *testing.T) {
 	orgName := fmt.Sprintf("Test Org %d", time.Now().UnixNano())
 
 	// Create organization
-	createdOrg, err := testClient.CreateOrganization(ctx, orgName, "Test description")
+	createdOrg, err := testClient.CreateOrganization(ctx, models.OrganizationCreate{
+		Name:        orgName,
+		Description: "Test description",
+	})
 	require.NoError(t, err, "CreateOrganization should succeed")
 	assert.NotEmpty(t, createdOrg.ID, "Org ID should not be empty")
 	orgID := createdOrg.ID
@@ -30,7 +35,11 @@ func TestOrganizationCRUD(t *testing.T) {
 
 	// Update organization
 	newName := orgName + " Updated"
-	updatedOrg, err := testClient.UpdateOrganization(ctx, orgID, newName, "Updated description", nil)
+	updatedDesc := "Updated description"
+	updatedOrg, err := testClient.UpdateOrganization(ctx, orgID, models.OrganizationUpdate{
+		Name:        &newName,
+		Description: &updatedDesc,
+	})
 	require.NoError(t, err, "UpdateOrganization should succeed")
 	assert.Equal(t, newName, updatedOrg.Name)
 
@@ -62,6 +71,6 @@ func TestValidationErrorsOrganizations(t *testing.T) {
 	assert.Error(t, err, "GetOrganization with empty ID should fail")
 
 	// Empty name should fail
-	_, err = testClient.CreateOrganization(ctx, "", "")
+	_, err = testClient.CreateOrganization(ctx, models.OrganizationCreate{})
 	assert.Error(t, err, "CreateOrganization with empty name should fail")
 }

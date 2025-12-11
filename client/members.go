@@ -72,7 +72,9 @@ func (a *Adapter) AddUserToOrganization(ctx context.Context, orgID, userID strin
 
 	// Assign roles if provided
 	if len(roleIDs) > 0 {
-		return a.UpdateUserRoles(ctx, orgID, userID, roleIDs)
+		return a.UpdateUserRoles(ctx, orgID, userID, models.UserOrganizationRolesUpdate{
+			OrganizationRoleIDs: roleIDs,
+		})
 	}
 
 	return nil
@@ -114,7 +116,7 @@ func (a *Adapter) RemoveUserFromOrganization(ctx context.Context, orgID, userID 
 }
 
 // UpdateUserRoles updates a user's roles in an organization
-func (a *Adapter) UpdateUserRoles(ctx context.Context, orgID, userID string, roleIDs []string) error {
+func (a *Adapter) UpdateUserRoles(ctx context.Context, orgID, userID string, update models.UserOrganizationRolesUpdate) error {
 	if orgID == "" {
 		return &ValidationError{Field: "orgID", Message: "cannot be empty"}
 	}
@@ -126,7 +128,7 @@ func (a *Adapter) UpdateUserRoles(ctx context.Context, orgID, userID string, rol
 		method:      http.MethodPut,
 		path:        "/api/organizations/%s/users/%s/roles",
 		pathParams:  []string{orgID, userID},
-		body:        map[string][]string{"organizationRoleIds": roleIDs},
+		body:        update,
 		expectCodes: []int{http.StatusOK, http.StatusNoContent},
 	})
 }

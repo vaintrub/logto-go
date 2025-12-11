@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/vaintrub/logto-go/models"
 )
 
 // TestIterators tests paginated iterators
@@ -33,7 +35,9 @@ func TestIterators(t *testing.T) {
 	t.Run("OrganizationIterator", func(t *testing.T) {
 		// Create a few orgs first
 		for i := 0; i < 3; i++ {
-			_, _ = testClient.CreateOrganization(ctx, fmt.Sprintf("Iter Org %d-%d", time.Now().UnixNano(), i), "")
+			_, _ = testClient.CreateOrganization(ctx, models.OrganizationCreate{
+				Name: fmt.Sprintf("Iter Org %d-%d", time.Now().UnixNano(), i),
+			})
 		}
 
 		iter := testClient.ListOrganizationsIter(ctx, 10)
@@ -61,10 +65,10 @@ func TestValidationErrors(t *testing.T) {
 	assert.Error(t, err, "GetOrganization with empty ID should fail")
 
 	// Empty name should fail
-	_, err = testClient.CreateOrganization(ctx, "", "")
+	_, err = testClient.CreateOrganization(ctx, models.OrganizationCreate{})
 	assert.Error(t, err, "CreateOrganization with empty name should fail")
 
 	// Empty username should fail
-	_, err = testClient.CreateUser(ctx, "", "password", "", "")
+	_, err = testClient.CreateUser(ctx, models.UserCreate{Password: "password"})
 	assert.Error(t, err, "CreateUser with empty username should fail")
 }

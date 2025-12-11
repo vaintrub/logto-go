@@ -8,6 +8,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/vaintrub/logto-go/models"
 )
 
 // TestAPIResourceCRUD tests API resource lifecycle
@@ -17,7 +19,10 @@ func TestAPIResourceCRUD(t *testing.T) {
 	indicator := fmt.Sprintf("https://api.test.local/%d", time.Now().UnixNano())
 
 	// Create resource
-	createdResource, err := testClient.CreateAPIResource(ctx, resourceName, indicator)
+	createdResource, err := testClient.CreateAPIResource(ctx, models.APIResourceCreate{
+		Name:      resourceName,
+		Indicator: indicator,
+	})
 	require.NoError(t, err, "CreateAPIResource should succeed")
 	assert.NotEmpty(t, createdResource.ID)
 	resourceID := createdResource.ID
@@ -31,7 +36,9 @@ func TestAPIResourceCRUD(t *testing.T) {
 
 	// Update resource
 	newName := resourceName + " Updated"
-	_, err = testClient.UpdateAPIResource(ctx, resourceID, newName, nil)
+	_, err = testClient.UpdateAPIResource(ctx, resourceID, models.APIResourceUpdate{
+		Name: &newName,
+	})
 	require.NoError(t, err, "UpdateAPIResource should succeed")
 
 	// List resources
@@ -49,7 +56,10 @@ func TestAPIResourceScopeCRUD(t *testing.T) {
 	ctx := context.Background()
 
 	// Create resource first
-	createdResource, err := testClient.CreateAPIResource(ctx, fmt.Sprintf("Scope Test API %d", time.Now().UnixNano()), fmt.Sprintf("https://api.scope.test/%d", time.Now().UnixNano()))
+	createdResource, err := testClient.CreateAPIResource(ctx, models.APIResourceCreate{
+		Name:      fmt.Sprintf("Scope Test API %d", time.Now().UnixNano()),
+		Indicator: fmt.Sprintf("https://api.scope.test/%d", time.Now().UnixNano()),
+	})
 	require.NoError(t, err)
 	resourceID := createdResource.ID
 	t.Cleanup(func() {
@@ -61,7 +71,10 @@ func TestAPIResourceScopeCRUD(t *testing.T) {
 	scopeName := fmt.Sprintf("read:%d", time.Now().UnixNano())
 
 	// Create scope
-	createdScope, err := testClient.CreateAPIResourceScope(ctx, resourceID, scopeName, "Read access")
+	createdScope, err := testClient.CreateAPIResourceScope(ctx, resourceID, models.APIResourceScopeCreate{
+		Name:        scopeName,
+		Description: "Read access",
+	})
 	require.NoError(t, err, "CreateAPIResourceScope should succeed")
 	assert.NotEmpty(t, createdScope.ID)
 	scopeID := createdScope.ID
@@ -73,7 +86,10 @@ func TestAPIResourceScopeCRUD(t *testing.T) {
 	assert.Equal(t, scopeName, scope.Name)
 
 	// Update scope
-	_, err = testClient.UpdateAPIResourceScope(ctx, resourceID, scopeID, "", "Updated description")
+	updatedScopeDesc := "Updated description"
+	_, err = testClient.UpdateAPIResourceScope(ctx, resourceID, scopeID, models.APIResourceScopeUpdate{
+		Description: &updatedScopeDesc,
+	})
 	require.NoError(t, err, "UpdateAPIResourceScope should succeed")
 
 	// List scopes

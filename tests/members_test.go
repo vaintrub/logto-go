@@ -8,6 +8,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/vaintrub/logto-go/models"
 )
 
 // TestOrganizationMembership tests adding/removing users from organizations
@@ -16,13 +18,17 @@ func TestOrganizationMembership(t *testing.T) {
 
 	// Create user
 	username := fmt.Sprintf("member_%d", time.Now().UnixNano())
-	createdUser, err := testClient.CreateUser(ctx, username, "Password123!", "Member User", "")
+	createdUser, err := testClient.CreateUser(ctx, models.UserCreate{
+		Username: username,
+		Password: "Password123!",
+		Name:     "Member User",
+	})
 	require.NoError(t, err)
 	userID := createdUser.ID
 
 	// Create organization
 	orgName := fmt.Sprintf("Membership Org %d", time.Now().UnixNano())
-	createdOrg, err := testClient.CreateOrganization(ctx, orgName, "")
+	createdOrg, err := testClient.CreateOrganization(ctx, models.OrganizationCreate{Name: orgName})
 	require.NoError(t, err)
 	orgID := createdOrg.ID
 	t.Cleanup(func() {
@@ -68,15 +74,23 @@ func TestBatchOrganizationOperations(t *testing.T) {
 	ctx := context.Background()
 
 	// Create users
-	user1Obj, err := testClient.CreateUser(ctx, fmt.Sprintf("batch1_%d", time.Now().UnixNano()), "Password123!", "", "")
+	user1Obj, err := testClient.CreateUser(ctx, models.UserCreate{
+		Username: fmt.Sprintf("batch1_%d", time.Now().UnixNano()),
+		Password: "Password123!",
+	})
 	require.NoError(t, err)
 	user1 := user1Obj.ID
-	user2Obj, err := testClient.CreateUser(ctx, fmt.Sprintf("batch2_%d", time.Now().UnixNano()), "Password123!", "", "")
+	user2Obj, err := testClient.CreateUser(ctx, models.UserCreate{
+		Username: fmt.Sprintf("batch2_%d", time.Now().UnixNano()),
+		Password: "Password123!",
+	})
 	require.NoError(t, err)
 	user2 := user2Obj.ID
 
 	// Create organization
-	createdOrg, err := testClient.CreateOrganization(ctx, fmt.Sprintf("Batch Org %d", time.Now().UnixNano()), "")
+	createdOrg, err := testClient.CreateOrganization(ctx, models.OrganizationCreate{
+		Name: fmt.Sprintf("Batch Org %d", time.Now().UnixNano()),
+	})
 	require.NoError(t, err)
 	orgID := createdOrg.ID
 	t.Cleanup(func() {
@@ -95,7 +109,10 @@ func TestBatchOrganizationOperations(t *testing.T) {
 	assert.Len(t, members, 2, "Should have two members")
 
 	// Create role for batch assignment
-	createdRole, err := testClient.CreateOrganizationRole(ctx, fmt.Sprintf("batch-role-%d", time.Now().UnixNano()), "Batch role", "", nil)
+	createdRole, err := testClient.CreateOrganizationRole(ctx, models.OrganizationRoleCreate{
+		Name:        fmt.Sprintf("batch-role-%d", time.Now().UnixNano()),
+		Description: "Batch role",
+	})
 	require.NoError(t, err)
 	roleID := createdRole.ID
 	t.Cleanup(func() {
@@ -120,12 +137,17 @@ func TestUserRolesInOrganization(t *testing.T) {
 	ctx := context.Background()
 
 	// Create user
-	createdUser, err := testClient.CreateUser(ctx, fmt.Sprintf("roleuser_%d", time.Now().UnixNano()), "Password123!", "", "")
+	createdUser, err := testClient.CreateUser(ctx, models.UserCreate{
+		Username: fmt.Sprintf("roleuser_%d", time.Now().UnixNano()),
+		Password: "Password123!",
+	})
 	require.NoError(t, err)
 	userID := createdUser.ID
 
 	// Create organization
-	createdOrg, err := testClient.CreateOrganization(ctx, fmt.Sprintf("Role Test Org %d", time.Now().UnixNano()), "")
+	createdOrg, err := testClient.CreateOrganization(ctx, models.OrganizationCreate{
+		Name: fmt.Sprintf("Role Test Org %d", time.Now().UnixNano()),
+	})
 	require.NoError(t, err)
 	orgID := createdOrg.ID
 	t.Cleanup(func() {
@@ -135,7 +157,9 @@ func TestUserRolesInOrganization(t *testing.T) {
 	})
 
 	// Create role
-	createdRole, err := testClient.CreateOrganizationRole(ctx, fmt.Sprintf("user-role-%d", time.Now().UnixNano()), "", "", nil)
+	createdRole, err := testClient.CreateOrganizationRole(ctx, models.OrganizationRoleCreate{
+		Name: fmt.Sprintf("user-role-%d", time.Now().UnixNano()),
+	})
 	require.NoError(t, err)
 	roleID := createdRole.ID
 	t.Cleanup(func() {
@@ -155,7 +179,9 @@ func TestUserRolesInOrganization(t *testing.T) {
 	assert.Equal(t, roleID, roles[0].ID)
 
 	// Update user roles (replace)
-	createdRole2, err := testClient.CreateOrganizationRole(ctx, fmt.Sprintf("user-role2-%d", time.Now().UnixNano()), "", "", nil)
+	createdRole2, err := testClient.CreateOrganizationRole(ctx, models.OrganizationRoleCreate{
+		Name: fmt.Sprintf("user-role2-%d", time.Now().UnixNano()),
+	})
 	require.NoError(t, err)
 	role2ID := createdRole2.ID
 	t.Cleanup(func() {
@@ -164,7 +190,9 @@ func TestUserRolesInOrganization(t *testing.T) {
 		}
 	})
 
-	err = testClient.UpdateUserRoles(ctx, orgID, userID, []string{role2ID})
+	err = testClient.UpdateUserRoles(ctx, orgID, userID, models.UserOrganizationRolesUpdate{
+		OrganizationRoleIDs: []string{role2ID},
+	})
 	require.NoError(t, err, "UpdateUserRoles should succeed")
 
 	// Verify roles updated
@@ -179,11 +207,16 @@ func TestListOrganizationMembersWithRoles(t *testing.T) {
 	ctx := context.Background()
 
 	// Create user, org, and role
-	createdUser, err := testClient.CreateUser(ctx, fmt.Sprintf("rolemember_%d", time.Now().UnixNano()), "Password123!", "", "")
+	createdUser, err := testClient.CreateUser(ctx, models.UserCreate{
+		Username: fmt.Sprintf("rolemember_%d", time.Now().UnixNano()),
+		Password: "Password123!",
+	})
 	require.NoError(t, err)
 	userID := createdUser.ID
 
-	createdOrg, err := testClient.CreateOrganization(ctx, fmt.Sprintf("MemberRole Org %d", time.Now().UnixNano()), "")
+	createdOrg, err := testClient.CreateOrganization(ctx, models.OrganizationCreate{
+		Name: fmt.Sprintf("MemberRole Org %d", time.Now().UnixNano()),
+	})
 	require.NoError(t, err)
 	orgID := createdOrg.ID
 	t.Cleanup(func() {
@@ -192,7 +225,9 @@ func TestListOrganizationMembersWithRoles(t *testing.T) {
 		}
 	})
 
-	createdRole, err := testClient.CreateOrganizationRole(ctx, fmt.Sprintf("member-role-%d", time.Now().UnixNano()), "", "", nil)
+	createdRole, err := testClient.CreateOrganizationRole(ctx, models.OrganizationRoleCreate{
+		Name: fmt.Sprintf("member-role-%d", time.Now().UnixNano()),
+	})
 	require.NoError(t, err)
 	roleID := createdRole.ID
 	t.Cleanup(func() {

@@ -64,21 +64,18 @@ func (a *Adapter) ListAPIResources(ctx context.Context) ([]models.APIResource, e
 }
 
 // CreateAPIResource creates a new API resource
-func (a *Adapter) CreateAPIResource(ctx context.Context, name, indicator string) (*models.APIResource, error) {
-	if name == "" {
+func (a *Adapter) CreateAPIResource(ctx context.Context, resource models.APIResourceCreate) (*models.APIResource, error) {
+	if resource.Name == "" {
 		return nil, &ValidationError{Field: "name", Message: "cannot be empty"}
 	}
-	if indicator == "" {
+	if resource.Indicator == "" {
 		return nil, &ValidationError{Field: "indicator", Message: "cannot be empty"}
 	}
 
 	body, _, err := a.doRequest(ctx, requestConfig{
-		method: http.MethodPost,
-		path:   "/api/resources",
-		body: map[string]interface{}{
-			"name":      name,
-			"indicator": indicator,
-		},
+		method:      http.MethodPost,
+		path:        "/api/resources",
+		body:        resource,
 		expectCodes: []int{http.StatusCreated, http.StatusOK},
 	})
 	if err != nil {
@@ -89,24 +86,16 @@ func (a *Adapter) CreateAPIResource(ctx context.Context, name, indicator string)
 }
 
 // UpdateAPIResource updates an API resource
-func (a *Adapter) UpdateAPIResource(ctx context.Context, resourceID, name string, accessTokenTTL *int) (*models.APIResource, error) {
+func (a *Adapter) UpdateAPIResource(ctx context.Context, resourceID string, update models.APIResourceUpdate) (*models.APIResource, error) {
 	if resourceID == "" {
 		return nil, &ValidationError{Field: "resourceID", Message: "cannot be empty"}
-	}
-
-	payload := make(map[string]interface{})
-	if name != "" {
-		payload["name"] = name
-	}
-	if accessTokenTTL != nil {
-		payload["accessTokenTtl"] = *accessTokenTTL
 	}
 
 	body, _, err := a.doRequest(ctx, requestConfig{
 		method:     http.MethodPatch,
 		path:       "/api/resources/%s",
 		pathParams: []string{resourceID},
-		body:       payload,
+		body:       update,
 	})
 	if err != nil {
 		return nil, err
@@ -180,22 +169,19 @@ func (a *Adapter) ListAPIResourceScopes(ctx context.Context, resourceID string) 
 }
 
 // CreateAPIResourceScope creates a new scope for an API resource
-func (a *Adapter) CreateAPIResourceScope(ctx context.Context, resourceID, name, description string) (*models.APIResourceScope, error) {
+func (a *Adapter) CreateAPIResourceScope(ctx context.Context, resourceID string, scope models.APIResourceScopeCreate) (*models.APIResourceScope, error) {
 	if resourceID == "" {
 		return nil, &ValidationError{Field: "resourceID", Message: "cannot be empty"}
 	}
-	if name == "" {
+	if scope.Name == "" {
 		return nil, &ValidationError{Field: "name", Message: "cannot be empty"}
 	}
 
 	body, _, err := a.doRequest(ctx, requestConfig{
-		method:     http.MethodPost,
-		path:       "/api/resources/%s/scopes",
-		pathParams: []string{resourceID},
-		body: map[string]interface{}{
-			"name":        name,
-			"description": description,
-		},
+		method:      http.MethodPost,
+		path:        "/api/resources/%s/scopes",
+		pathParams:  []string{resourceID},
+		body:        scope,
 		expectCodes: []int{http.StatusCreated, http.StatusOK},
 	})
 	if err != nil {
@@ -206,7 +192,7 @@ func (a *Adapter) CreateAPIResourceScope(ctx context.Context, resourceID, name, 
 }
 
 // UpdateAPIResourceScope updates a scope for an API resource
-func (a *Adapter) UpdateAPIResourceScope(ctx context.Context, resourceID, scopeID, name, description string) (*models.APIResourceScope, error) {
+func (a *Adapter) UpdateAPIResourceScope(ctx context.Context, resourceID, scopeID string, update models.APIResourceScopeUpdate) (*models.APIResourceScope, error) {
 	if resourceID == "" {
 		return nil, &ValidationError{Field: "resourceID", Message: "cannot be empty"}
 	}
@@ -214,19 +200,11 @@ func (a *Adapter) UpdateAPIResourceScope(ctx context.Context, resourceID, scopeI
 		return nil, &ValidationError{Field: "scopeID", Message: "cannot be empty"}
 	}
 
-	payload := make(map[string]interface{})
-	if name != "" {
-		payload["name"] = name
-	}
-	if description != "" {
-		payload["description"] = description
-	}
-
 	body, _, err := a.doRequest(ctx, requestConfig{
 		method:     http.MethodPatch,
 		path:       "/api/resources/%s/scopes/%s",
 		pathParams: []string{resourceID, scopeID},
-		body:       payload,
+		body:       update,
 	})
 	if err != nil {
 		return nil, err

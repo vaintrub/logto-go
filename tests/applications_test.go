@@ -51,8 +51,10 @@ func TestOrganizationApplications(t *testing.T) {
 	ctx := context.Background()
 
 	// Create organization
-	createdOrg, err := testClient.CreateOrganization(ctx,
-		fmt.Sprintf("App Test Org %d", time.Now().UnixNano()), "Organization for app testing")
+	createdOrg, err := testClient.CreateOrganization(ctx, models.OrganizationCreate{
+		Name:        fmt.Sprintf("App Test Org %d", time.Now().UnixNano()),
+		Description: "Organization for app testing",
+	})
 	require.NoError(t, err)
 	orgID := createdOrg.ID
 	t.Cleanup(func() {
@@ -71,8 +73,11 @@ func TestOrganizationApplications(t *testing.T) {
 	appID := createdApp.ID
 
 	// Create M2M organization role (only M2M roles can be assigned to M2M apps)
-	createdRole, err := testClient.CreateOrganizationRole(ctx,
-		fmt.Sprintf("app-test-role-%d", time.Now().UnixNano()), "Role for M2M app", models.OrganizationRoleTypeMachineToMachine, nil)
+	createdRole, err := testClient.CreateOrganizationRole(ctx, models.OrganizationRoleCreate{
+		Name:        fmt.Sprintf("app-test-role-%d", time.Now().UnixNano()),
+		Description: "Role for M2M app",
+		Type:        models.OrganizationRoleTypeMachineToMachine,
+	})
 	require.NoError(t, err)
 	roleID := createdRole.ID
 	t.Cleanup(func() {

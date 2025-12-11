@@ -9,6 +9,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/vaintrub/logto-go/models"
 )
 
 // === Helper functions ===
@@ -357,10 +359,6 @@ func TestGetUser_NotFound(t *testing.T) {
 		t.Fatal("expected error, got nil")
 	}
 
-	// Current implementation doesn't use APIError for GetUser, so we just check error is not nil
-	if err == nil {
-		t.Error("expected error for not found user")
-	}
 }
 
 func TestListUsers_EmptyArray(t *testing.T) {
@@ -717,31 +715,31 @@ func TestCRUDValidation_EmptyNames(t *testing.T) {
 		field string
 	}{
 		{"CreateOrganization empty name", func() error {
-			_, err := adapter.CreateOrganization(context.Background(), "", "description")
+			_, err := adapter.CreateOrganization(context.Background(), models.OrganizationCreate{Description: "description"})
 			return err
 		}, "name"},
 		{"CreateOrganizationRole empty name", func() error {
-			_, err := adapter.CreateOrganizationRole(context.Background(), "", "description", "", nil)
+			_, err := adapter.CreateOrganizationRole(context.Background(), models.OrganizationRoleCreate{Description: "description"})
 			return err
 		}, "name"},
 		{"CreateOrganizationScope empty name", func() error {
-			_, err := adapter.CreateOrganizationScope(context.Background(), "", "description")
+			_, err := adapter.CreateOrganizationScope(context.Background(), models.OrganizationScopeCreate{Description: "description"})
 			return err
 		}, "name"},
 		{"CreateAPIResource empty name", func() error {
-			_, err := adapter.CreateAPIResource(context.Background(), "", "https://api.example.com")
+			_, err := adapter.CreateAPIResource(context.Background(), models.APIResourceCreate{Indicator: "https://api.example.com"})
 			return err
 		}, "name"},
 		{"CreateAPIResource empty indicator", func() error {
-			_, err := adapter.CreateAPIResource(context.Background(), "Test API", "")
+			_, err := adapter.CreateAPIResource(context.Background(), models.APIResourceCreate{Name: "Test API"})
 			return err
 		}, "indicator"},
 		{"CreateAPIResourceScope empty name", func() error {
-			_, err := adapter.CreateAPIResourceScope(context.Background(), "resource-123", "", "description")
+			_, err := adapter.CreateAPIResourceScope(context.Background(), "resource-123", models.APIResourceScopeCreate{Description: "description"})
 			return err
 		}, "name"},
 		{"CreateAPIResourceScope empty resourceID", func() error {
-			_, err := adapter.CreateAPIResourceScope(context.Background(), "", "scope", "description")
+			_, err := adapter.CreateAPIResourceScope(context.Background(), "", models.APIResourceScopeCreate{Name: "scope", Description: "description"})
 			return err
 		}, "resourceID"},
 	}
@@ -752,6 +750,193 @@ func TestCRUDValidation_EmptyNames(t *testing.T) {
 			if err == nil {
 				t.Error("expected validation error, got nil")
 				return
+			}
+			if !errors.Is(err, ErrInvalidInput) {
+				t.Errorf("expected ErrInvalidInput, got %v", err)
+			}
+			var valErr *ValidationError
+			if errors.As(err, &valErr) {
+				if valErr.Field != tt.field {
+					t.Errorf("expected field %q, got %q", tt.field, valErr.Field)
+				}
+			}
+		})
+	}
+}
+
+// === Verification Code tests ===
+
+func TestRequestVerificationCode_Success(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if mockM2MTokenResponse(w, r) {
+			return
+		}
+
+		if r.URL.Path == "/api/verification-codes" && r.Method == http.MethodPost {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+
+	adapter := newTestAdapter(t, server.URL)
+
+	// Test with email
+	err := adapter.RequestVerificationCode(context.Background(), VerificationCodeRequest{
+		Email: "test@example.com",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRequestVerificationCode_SuccessWithPhone(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if mockM2MTokenResponse(w, r) {
+			return
+		}
+
+		if r.URL.Path == "/api/verification-codes" && r.Method == http.MethodPost {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+
+	adapter := newTestAdapter(t, server.URL)
+
+	// Test with phone
+	err := adapter.RequestVerificationCode(context.Background(), VerificationCodeRequest{
+		Phone: "+1234567890",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRequestVerificationCode_Validation(t *testing.T) {
+	adapter, _ := New("http://localhost", "app-id", "secret")
+
+	tests := []struct {
+		name    string
+		req     VerificationCodeRequest
+		wantErr string
+	}{
+		{
+			name:    "empty email and phone",
+			req:     VerificationCodeRequest{},
+			wantErr: "either email or phone must be provided",
+		},
+		{
+			name:    "both email and phone",
+			req:     VerificationCodeRequest{Email: "test@example.com", Phone: "+1234567890"},
+			wantErr: "only one of email or phone should be provided",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := adapter.RequestVerificationCode(context.Background(), tt.req)
+			if err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			if !errors.Is(err, ErrInvalidInput) {
+				t.Errorf("expected ErrInvalidInput, got %v", err)
+			}
+			var valErr *ValidationError
+			if errors.As(err, &valErr) {
+				if valErr.Message != tt.wantErr {
+					t.Errorf("expected message %q, got %q", tt.wantErr, valErr.Message)
+				}
+			}
+		})
+	}
+}
+
+func TestVerifyCode_Success(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if mockM2MTokenResponse(w, r) {
+			return
+		}
+
+		if r.URL.Path == "/api/verification-codes/verify" && r.Method == http.MethodPost {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+
+	adapter := newTestAdapter(t, server.URL)
+
+	err := adapter.VerifyCode(context.Background(), VerifyCodeRequest{
+		Email:            "test@example.com",
+		VerificationCode: "123456",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestVerifyCode_SuccessWithPhone(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if mockM2MTokenResponse(w, r) {
+			return
+		}
+
+		if r.URL.Path == "/api/verification-codes/verify" && r.Method == http.MethodPost {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+
+	adapter := newTestAdapter(t, server.URL)
+
+	err := adapter.VerifyCode(context.Background(), VerifyCodeRequest{
+		Phone:            "+1234567890",
+		VerificationCode: "123456",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestVerifyCode_Validation(t *testing.T) {
+	adapter, _ := New("http://localhost", "app-id", "secret")
+
+	tests := []struct {
+		name    string
+		req     VerifyCodeRequest
+		field   string
+		wantErr string
+	}{
+		{
+			name:    "empty email and phone",
+			req:     VerifyCodeRequest{VerificationCode: "123456"},
+			field:   "email/phone",
+			wantErr: "either email or phone must be provided",
+		},
+		{
+			name:    "empty verification code",
+			req:     VerifyCodeRequest{Email: "test@example.com"},
+			field:   "verificationCode",
+			wantErr: "cannot be empty",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := adapter.VerifyCode(context.Background(), tt.req)
+			if err == nil {
+				t.Fatal("expected error, got nil")
 			}
 			if !errors.Is(err, ErrInvalidInput) {
 				t.Errorf("expected ErrInvalidInput, got %v", err)

@@ -18,7 +18,11 @@ func TestRoleCRUD(t *testing.T) {
 	roleName := fmt.Sprintf("Test Global Role %d", time.Now().UnixNano())
 
 	// Create role
-	createdRole, err := testClient.CreateRole(ctx, roleName, "Test global role description", models.RoleTypeUser, nil)
+	createdRole, err := testClient.CreateRole(ctx, models.RoleCreate{
+		Name:        roleName,
+		Description: "Test global role description",
+		Type:        models.RoleTypeUser,
+	})
 	require.NoError(t, err, "CreateRole should succeed")
 	assert.NotEmpty(t, createdRole.ID)
 	assert.Equal(t, roleName, createdRole.Name)
@@ -39,7 +43,11 @@ func TestRoleCRUD(t *testing.T) {
 
 	// Update role
 	newRoleName := roleName + " Updated"
-	updatedRole, err := testClient.UpdateRole(ctx, roleID, newRoleName, "Updated description", nil)
+	updatedDesc := "Updated description"
+	updatedRole, err := testClient.UpdateRole(ctx, roleID, models.RoleUpdate{
+		Name:        &newRoleName,
+		Description: &updatedDesc,
+	})
 	require.NoError(t, err, "UpdateRole should succeed")
 	assert.Equal(t, newRoleName, updatedRole.Name)
 	assert.Equal(t, "Updated description", updatedRole.Description)
@@ -62,7 +70,7 @@ func TestRoleCRUD(t *testing.T) {
 
 	// Test update with isDefault
 	isDefault := true
-	_, err = testClient.UpdateRole(ctx, roleID, "", "", &isDefault)
+	_, err = testClient.UpdateRole(ctx, roleID, models.RoleUpdate{IsDefault: &isDefault})
 	require.NoError(t, err, "UpdateRole with isDefault should succeed")
 
 	role, err = testClient.GetRole(ctx, roleID)
@@ -75,9 +83,10 @@ func TestRoleScopes(t *testing.T) {
 	ctx := context.Background()
 
 	// Create API resource with scope
-	createdResource, err := testClient.CreateAPIResource(ctx,
-		fmt.Sprintf("Role Scope Test API %d", time.Now().UnixNano()),
-		fmt.Sprintf("https://api.role-scope.test/%d", time.Now().UnixNano()))
+	createdResource, err := testClient.CreateAPIResource(ctx, models.APIResourceCreate{
+		Name:      fmt.Sprintf("Role Scope Test API %d", time.Now().UnixNano()),
+		Indicator: fmt.Sprintf("https://api.role-scope.test/%d", time.Now().UnixNano()),
+	})
 	require.NoError(t, err)
 	resourceID := createdResource.ID
 	t.Cleanup(func() {
@@ -86,19 +95,26 @@ func TestRoleScopes(t *testing.T) {
 		}
 	})
 
-	createdScope, err := testClient.CreateAPIResourceScope(ctx, resourceID,
-		fmt.Sprintf("read:%d", time.Now().UnixNano()), "Read access")
+	createdScope, err := testClient.CreateAPIResourceScope(ctx, resourceID, models.APIResourceScopeCreate{
+		Name:        fmt.Sprintf("read:%d", time.Now().UnixNano()),
+		Description: "Read access",
+	})
 	require.NoError(t, err)
 	scopeID := createdScope.ID
 
-	createdScope2, err := testClient.CreateAPIResourceScope(ctx, resourceID,
-		fmt.Sprintf("write:%d", time.Now().UnixNano()), "Write access")
+	createdScope2, err := testClient.CreateAPIResourceScope(ctx, resourceID, models.APIResourceScopeCreate{
+		Name:        fmt.Sprintf("write:%d", time.Now().UnixNano()),
+		Description: "Write access",
+	})
 	require.NoError(t, err)
 	scope2ID := createdScope2.ID
 
 	// Create role
-	createdRole, err := testClient.CreateRole(ctx,
-		fmt.Sprintf("scope-test-role-%d", time.Now().UnixNano()), "Role for scope testing", models.RoleTypeUser, nil)
+	createdRole, err := testClient.CreateRole(ctx, models.RoleCreate{
+		Name:        fmt.Sprintf("scope-test-role-%d", time.Now().UnixNano()),
+		Description: "Role for scope testing",
+		Type:        models.RoleTypeUser,
+	})
 	require.NoError(t, err)
 	roleID := createdRole.ID
 	t.Cleanup(func() {
@@ -141,17 +157,28 @@ func TestRoleUsers(t *testing.T) {
 	ctx := context.Background()
 
 	// Create users
-	createdUser1, err := testClient.CreateUser(ctx, fmt.Sprintf("roleuser1_%d", time.Now().UnixNano()), "Password123!", "Role User 1", "")
+	createdUser1, err := testClient.CreateUser(ctx, models.UserCreate{
+		Username: fmt.Sprintf("roleuser1_%d", time.Now().UnixNano()),
+		Password: "Password123!",
+		Name:     "Role User 1",
+	})
 	require.NoError(t, err)
 	user1ID := createdUser1.ID
 
-	createdUser2, err := testClient.CreateUser(ctx, fmt.Sprintf("roleuser2_%d", time.Now().UnixNano()), "Password123!", "Role User 2", "")
+	createdUser2, err := testClient.CreateUser(ctx, models.UserCreate{
+		Username: fmt.Sprintf("roleuser2_%d", time.Now().UnixNano()),
+		Password: "Password123!",
+		Name:     "Role User 2",
+	})
 	require.NoError(t, err)
 	user2ID := createdUser2.ID
 
 	// Create role
-	createdRole, err := testClient.CreateRole(ctx,
-		fmt.Sprintf("user-test-role-%d", time.Now().UnixNano()), "Role for user testing", models.RoleTypeUser, nil)
+	createdRole, err := testClient.CreateRole(ctx, models.RoleCreate{
+		Name:        fmt.Sprintf("user-test-role-%d", time.Now().UnixNano()),
+		Description: "Role for user testing",
+		Type:        models.RoleTypeUser,
+	})
 	require.NoError(t, err)
 	roleID := createdRole.ID
 	t.Cleanup(func() {
@@ -210,8 +237,11 @@ func TestRoleApplications(t *testing.T) {
 	app2ID := createdApp2.ID
 
 	// Create M2M role (must be MachineToMachine type to assign to M2M apps)
-	createdRole, err := testClient.CreateRole(ctx,
-		fmt.Sprintf("m2m-app-test-role-%d", time.Now().UnixNano()), "M2M Role for app testing", models.RoleTypeMachineToMachine, nil)
+	createdRole, err := testClient.CreateRole(ctx, models.RoleCreate{
+		Name:        fmt.Sprintf("m2m-app-test-role-%d", time.Now().UnixNano()),
+		Description: "M2M Role for app testing",
+		Type:        models.RoleTypeMachineToMachine,
+	})
 	require.NoError(t, err)
 	roleID := createdRole.ID
 	t.Cleanup(func() {
@@ -253,9 +283,10 @@ func TestCreateRoleWithScopes(t *testing.T) {
 	ctx := context.Background()
 
 	// Create API resource with scope
-	createdResource, err := testClient.CreateAPIResource(ctx,
-		fmt.Sprintf("Role Create Scope Test %d", time.Now().UnixNano()),
-		fmt.Sprintf("https://api.role-create-scope.test/%d", time.Now().UnixNano()))
+	createdResource, err := testClient.CreateAPIResource(ctx, models.APIResourceCreate{
+		Name:      fmt.Sprintf("Role Create Scope Test %d", time.Now().UnixNano()),
+		Indicator: fmt.Sprintf("https://api.role-create-scope.test/%d", time.Now().UnixNano()),
+	})
 	require.NoError(t, err)
 	resourceID := createdResource.ID
 	t.Cleanup(func() {
@@ -264,17 +295,20 @@ func TestCreateRoleWithScopes(t *testing.T) {
 		}
 	})
 
-	createdScope, err := testClient.CreateAPIResourceScope(ctx, resourceID,
-		fmt.Sprintf("manage:%d", time.Now().UnixNano()), "Manage access")
+	createdScope, err := testClient.CreateAPIResourceScope(ctx, resourceID, models.APIResourceScopeCreate{
+		Name:        fmt.Sprintf("manage:%d", time.Now().UnixNano()),
+		Description: "Manage access",
+	})
 	require.NoError(t, err)
 	scopeID := createdScope.ID
 
 	// Create role with scope
-	createdRole, err := testClient.CreateRole(ctx,
-		fmt.Sprintf("scope-at-create-role-%d", time.Now().UnixNano()),
-		"Role with scope at creation",
-		models.RoleTypeUser,
-		[]string{scopeID})
+	createdRole, err := testClient.CreateRole(ctx, models.RoleCreate{
+		Name:        fmt.Sprintf("scope-at-create-role-%d", time.Now().UnixNano()),
+		Description: "Role with scope at creation",
+		Type:        models.RoleTypeUser,
+		ScopeIDs:    []string{scopeID},
+	})
 	require.NoError(t, err, "CreateRole with scopes should succeed")
 	roleID := createdRole.ID
 	t.Cleanup(func() {

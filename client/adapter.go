@@ -498,26 +498,15 @@ func (a *Adapter) ListRoles(ctx context.Context) ([]models.Role, error) {
 }
 
 // CreateRole creates a new global role
-func (a *Adapter) CreateRole(ctx context.Context, name, description string, roleType models.RoleType, scopeIDs []string) (*models.Role, error) {
-	if name == "" {
+func (a *Adapter) CreateRole(ctx context.Context, role models.RoleCreate) (*models.Role, error) {
+	if role.Name == "" {
 		return nil, &ValidationError{Field: "name", Message: "cannot be empty"}
-	}
-
-	payload := map[string]interface{}{
-		"name":        name,
-		"description": description,
-	}
-	if roleType != "" {
-		payload["type"] = roleType
-	}
-	if len(scopeIDs) > 0 {
-		payload["scopeIds"] = scopeIDs
 	}
 
 	body, _, err := a.doRequest(ctx, requestConfig{
 		method:      http.MethodPost,
 		path:        "/api/roles",
-		body:        payload,
+		body:        role,
 		expectCodes: []int{http.StatusOK, http.StatusCreated},
 	})
 	if err != nil {
@@ -528,27 +517,16 @@ func (a *Adapter) CreateRole(ctx context.Context, name, description string, role
 }
 
 // UpdateRole updates a global role
-func (a *Adapter) UpdateRole(ctx context.Context, roleID, name, description string, isDefault *bool) (*models.Role, error) {
+func (a *Adapter) UpdateRole(ctx context.Context, roleID string, update models.RoleUpdate) (*models.Role, error) {
 	if roleID == "" {
 		return nil, &ValidationError{Field: "roleID", Message: "cannot be empty"}
-	}
-
-	payload := make(map[string]interface{})
-	if name != "" {
-		payload["name"] = name
-	}
-	if description != "" {
-		payload["description"] = description
-	}
-	if isDefault != nil {
-		payload["isDefault"] = *isDefault
 	}
 
 	body, _, err := a.doRequest(ctx, requestConfig{
 		method:     http.MethodPatch,
 		path:       "/api/roles/%s",
 		pathParams: []string{roleID},
-		body:       payload,
+		body:       update,
 	})
 	if err != nil {
 		return nil, err
@@ -795,27 +773,27 @@ func parseRoleResponse(data []byte) (*models.Role, error) {
 }
 
 // CreateOrganizationInvitation creates an invitation for a user to join an organization
-func (a *Adapter) CreateOrganizationInvitation(ctx context.Context, orgID, inviterID, email string, roleIDs []string, expiresAtMs int64) (*models.OrganizationInvitation, error) {
-	if orgID == "" {
-		return nil, &ValidationError{Field: "orgID", Message: "cannot be empty"}
+func (a *Adapter) CreateOrganizationInvitation(ctx context.Context, invitation models.OrganizationInvitationCreate) (*models.OrganizationInvitation, error) {
+	if invitation.OrganizationID == "" {
+		return nil, &ValidationError{Field: "organizationId", Message: "cannot be empty"}
 	}
-	if email == "" {
-		return nil, &ValidationError{Field: "email", Message: "cannot be empty"}
+	if invitation.Invitee == "" {
+		return nil, &ValidationError{Field: "invitee", Message: "cannot be empty"}
 	}
 
 	payload := map[string]interface{}{
-		"organizationId": orgID,
-		"invitee":        email,
-		"expiresAt":      float64(expiresAtMs),
+		"organizationId": invitation.OrganizationID,
+		"invitee":        invitation.Invitee,
+		"expiresAt":      float64(invitation.ExpiresAt),
 		"messagePayload": false, // We'll send our own emails
 	}
 
-	if inviterID != "" {
-		payload["inviterId"] = inviterID
+	if invitation.InviterID != "" {
+		payload["inviterId"] = invitation.InviterID
 	}
 
-	if len(roleIDs) > 0 {
-		payload["organizationRoleIds"] = roleIDs
+	if len(invitation.OrganizationRoleIDs) > 0 {
+		payload["organizationRoleIds"] = invitation.OrganizationRoleIDs
 	}
 
 	body, _, err := a.doRequest(ctx, requestConfig{
@@ -920,19 +898,22 @@ func (a *Adapter) SendInvitationMessage(ctx context.Context, invitationID, magic
 }
 
 // CreateOneTimeToken creates a one-time token for magic link authentication
-func (a *Adapter) CreateOneTimeToken(ctx context.Context, email string, expiresIn int, jitOrgIDs []string) (*models.OneTimeTokenResult, error) {
-	if email == "" {
+func (a *Adapter) CreateOneTimeToken(ctx context.Context, token models.OneTimeTokenCreate) (*models.OneTimeTokenResult, error) {
+	if token.Email == "" {
 		return nil, &ValidationError{Field: "email", Message: "cannot be empty"}
 	}
 
 	payload := map[string]interface{}{
-		"email":     email,
-		"expiresIn": expiresIn,
+		"email": token.Email,
 	}
 
-	if len(jitOrgIDs) > 0 {
+	if token.ExpiresIn > 0 {
+		payload["expiresIn"] = token.ExpiresIn
+	}
+
+	if len(token.JitOrganizationIDs) > 0 {
 		payload["context"] = map[string]interface{}{
-			"jitOrganizationIds": jitOrgIDs,
+			"jitOrganizationIds": token.JitOrganizationIDs,
 		}
 	}
 

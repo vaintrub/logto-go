@@ -8,6 +8,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/vaintrub/logto-go/models"
 )
 
 // TestOrganizationRoleCRUD tests organization role lifecycle
@@ -16,7 +18,10 @@ func TestOrganizationRoleCRUD(t *testing.T) {
 	roleName := fmt.Sprintf("Test Role %d", time.Now().UnixNano())
 
 	// Create role
-	createdRole, err := testClient.CreateOrganizationRole(ctx, roleName, "Test role description", "", nil)
+	createdRole, err := testClient.CreateOrganizationRole(ctx, models.OrganizationRoleCreate{
+		Name:        roleName,
+		Description: "Test role description",
+	})
 	require.NoError(t, err, "CreateOrganizationRole should succeed")
 	assert.NotEmpty(t, createdRole.ID)
 	roleID := createdRole.ID
@@ -29,7 +34,11 @@ func TestOrganizationRoleCRUD(t *testing.T) {
 
 	// Update role
 	newRoleName := roleName + " Updated"
-	_, err = testClient.UpdateOrganizationRole(ctx, roleID, newRoleName, "Updated description")
+	updatedRoleDesc := "Updated description"
+	_, err = testClient.UpdateOrganizationRole(ctx, roleID, models.OrganizationRoleUpdate{
+		Name:        &newRoleName,
+		Description: &updatedRoleDesc,
+	})
 	require.NoError(t, err, "UpdateOrganizationRole should succeed")
 
 	// List roles
@@ -48,7 +57,10 @@ func TestOrganizationScopeCRUD(t *testing.T) {
 	scopeName := fmt.Sprintf("test:scope:%d", time.Now().UnixNano())
 
 	// Create scope
-	createdScope, err := testClient.CreateOrganizationScope(ctx, scopeName, "Test scope")
+	createdScope, err := testClient.CreateOrganizationScope(ctx, models.OrganizationScopeCreate{
+		Name:        scopeName,
+		Description: "Test scope",
+	})
 	require.NoError(t, err, "CreateOrganizationScope should succeed")
 	assert.NotEmpty(t, createdScope.ID)
 	scopeID := createdScope.ID
@@ -60,7 +72,10 @@ func TestOrganizationScopeCRUD(t *testing.T) {
 	assert.Equal(t, scopeName, scope.Name)
 
 	// Update scope
-	_, err = testClient.UpdateOrganizationScope(ctx, scopeID, "", "Updated description")
+	updatedScopeDesc := "Updated description"
+	_, err = testClient.UpdateOrganizationScope(ctx, scopeID, models.OrganizationScopeUpdate{
+		Description: &updatedScopeDesc,
+	})
 	require.NoError(t, err, "UpdateOrganizationScope should succeed")
 
 	// List scopes
@@ -78,7 +93,9 @@ func TestRoleScopeOperations(t *testing.T) {
 	ctx := context.Background()
 
 	// Create scope
-	createdScope, err := testClient.CreateOrganizationScope(ctx, fmt.Sprintf("role:scope:%d", time.Now().UnixNano()), "")
+	createdScope, err := testClient.CreateOrganizationScope(ctx, models.OrganizationScopeCreate{
+		Name: fmt.Sprintf("role:scope:%d", time.Now().UnixNano()),
+	})
 	require.NoError(t, err)
 	scopeID := createdScope.ID
 	t.Cleanup(func() {
@@ -88,7 +105,9 @@ func TestRoleScopeOperations(t *testing.T) {
 	})
 
 	// Create role
-	createdRole, err := testClient.CreateOrganizationRole(ctx, fmt.Sprintf("scope-role-%d", time.Now().UnixNano()), "", "", nil)
+	createdRole, err := testClient.CreateOrganizationRole(ctx, models.OrganizationRoleCreate{
+		Name: fmt.Sprintf("scope-role-%d", time.Now().UnixNano()),
+	})
 	require.NoError(t, err)
 	roleID := createdRole.ID
 	t.Cleanup(func() {
@@ -130,8 +149,10 @@ func TestGetOrganizationRoleScopes(t *testing.T) {
 	ctx := context.Background()
 
 	// Create scope
-	createdScope, err := testClient.CreateOrganizationScope(ctx,
-		fmt.Sprintf("direct:scope:%d", time.Now().UnixNano()), "Direct scope test")
+	createdScope, err := testClient.CreateOrganizationScope(ctx, models.OrganizationScopeCreate{
+		Name:        fmt.Sprintf("direct:scope:%d", time.Now().UnixNano()),
+		Description: "Direct scope test",
+	})
 	require.NoError(t, err)
 	scopeID := createdScope.ID
 	t.Cleanup(func() {
@@ -141,8 +162,10 @@ func TestGetOrganizationRoleScopes(t *testing.T) {
 	})
 
 	// Create role with scope
-	createdRole, err := testClient.CreateOrganizationRole(ctx,
-		fmt.Sprintf("direct-scope-role-%d", time.Now().UnixNano()), "", "", []string{scopeID})
+	createdRole, err := testClient.CreateOrganizationRole(ctx, models.OrganizationRoleCreate{
+		Name:                 fmt.Sprintf("direct-scope-role-%d", time.Now().UnixNano()),
+		OrganizationScopeIDs: []string{scopeID},
+	})
 	require.NoError(t, err)
 	roleID := createdRole.ID
 	t.Cleanup(func() {
@@ -163,9 +186,10 @@ func TestAssignResourceScopesToOrganizationRole(t *testing.T) {
 	ctx := context.Background()
 
 	// Create API resource with scope
-	createdResource, err := testClient.CreateAPIResource(ctx,
-		fmt.Sprintf("Resource Scope Test %d", time.Now().UnixNano()),
-		fmt.Sprintf("https://api.resource-scope.test/%d", time.Now().UnixNano()))
+	createdResource, err := testClient.CreateAPIResource(ctx, models.APIResourceCreate{
+		Name:      fmt.Sprintf("Resource Scope Test %d", time.Now().UnixNano()),
+		Indicator: fmt.Sprintf("https://api.resource-scope.test/%d", time.Now().UnixNano()),
+	})
 	require.NoError(t, err)
 	resourceID := createdResource.ID
 	t.Cleanup(func() {
@@ -174,14 +198,17 @@ func TestAssignResourceScopesToOrganizationRole(t *testing.T) {
 		}
 	})
 
-	createdScope, err := testClient.CreateAPIResourceScope(ctx, resourceID,
-		fmt.Sprintf("read:%d", time.Now().UnixNano()), "Read access")
+	createdScope, err := testClient.CreateAPIResourceScope(ctx, resourceID, models.APIResourceScopeCreate{
+		Name:        fmt.Sprintf("read:%d", time.Now().UnixNano()),
+		Description: "Read access",
+	})
 	require.NoError(t, err)
 	scopeID := createdScope.ID
 
 	// Create organization role
-	createdRole, err := testClient.CreateOrganizationRole(ctx,
-		fmt.Sprintf("resource-scope-role-%d", time.Now().UnixNano()), "", "", nil)
+	createdRole, err := testClient.CreateOrganizationRole(ctx, models.OrganizationRoleCreate{
+		Name: fmt.Sprintf("resource-scope-role-%d", time.Now().UnixNano()),
+	})
 	require.NoError(t, err)
 	roleID := createdRole.ID
 	t.Cleanup(func() {

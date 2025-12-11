@@ -99,27 +99,18 @@ func (a *Adapter) ListUsers(ctx context.Context) ([]models.User, error) {
 }
 
 // CreateUser creates a new user in Logto
-func (a *Adapter) CreateUser(ctx context.Context, username, password, name, primaryEmail string) (*models.User, error) {
-	if username == "" {
+func (a *Adapter) CreateUser(ctx context.Context, user models.UserCreate) (*models.User, error) {
+	if user.Username == "" {
 		return nil, &ValidationError{Field: "username", Message: "cannot be empty"}
 	}
-	if password == "" {
+	if user.Password == "" {
 		return nil, &ValidationError{Field: "password", Message: "cannot be empty"}
-	}
-
-	payload := map[string]interface{}{
-		"username": username,
-		"password": password,
-		"name":     name,
-	}
-	if primaryEmail != "" {
-		payload["primaryEmail"] = primaryEmail
 	}
 
 	body, _, err := a.doRequest(ctx, requestConfig{
 		method:      http.MethodPost,
 		path:        "/api/users",
-		body:        payload,
+		body:        user,
 		expectCodes: []int{http.StatusCreated, http.StatusOK},
 	})
 	if err != nil {
@@ -156,53 +147,15 @@ func (a *Adapter) UpdateUser(ctx context.Context, userID string, update models.U
 	if update.CustomData != nil {
 		payload["customData"] = update.CustomData
 	}
+	if update.Profile != nil {
+		payload["profile"] = update.Profile
+	}
 
 	body, _, err := a.doRequest(ctx, requestConfig{
 		method:     http.MethodPatch,
 		path:       "/api/users/%s",
 		pathParams: []string{userID},
 		body:       payload,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return parseUserResponse(body)
-}
-
-// UpdateUserProfile updates user profile fields (familyName, givenName, etc.)
-// PATCH /api/users/{userId}/profile
-func (a *Adapter) UpdateUserProfile(ctx context.Context, userID string, profile models.UserProfileUpdate) (*models.User, error) {
-	if userID == "" {
-		return nil, &ValidationError{Field: "userID", Message: "cannot be empty"}
-	}
-
-	body, _, err := a.doRequest(ctx, requestConfig{
-		method:     http.MethodPatch,
-		path:       "/api/users/%s/profile",
-		pathParams: []string{userID},
-		body:       profile,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return parseUserResponse(body)
-}
-
-// UpdateUserCustomData performs a partial update of user's customData (merge mode)
-func (a *Adapter) UpdateUserCustomData(ctx context.Context, userID string, customData map[string]interface{}) (*models.User, error) {
-	if userID == "" {
-		return nil, &ValidationError{Field: "userID", Message: "cannot be empty"}
-	}
-
-	body, _, err := a.doRequest(ctx, requestConfig{
-		method:     http.MethodPatch,
-		path:       "/api/users/%s/custom-data",
-		pathParams: []string{userID},
-		body: map[string]interface{}{
-			"customData": customData,
-		},
 	})
 	if err != nil {
 		return nil, err
@@ -231,11 +184,11 @@ func (a *Adapter) DeleteUser(ctx context.Context, userID string) error {
 // Note: This does not require the old password. Use VerifyUserPassword first
 // if you need to verify the current password before changing it.
 // PATCH /api/users/{userId}/password
-func (a *Adapter) UpdateUserPassword(ctx context.Context, userID, password string) error {
+func (a *Adapter) UpdateUserPassword(ctx context.Context, userID string, update models.UserPasswordUpdate) error {
 	if userID == "" {
 		return &ValidationError{Field: "userID", Message: "cannot be empty"}
 	}
-	if password == "" {
+	if update.Password == "" {
 		return &ValidationError{Field: "password", Message: "cannot be empty"}
 	}
 
@@ -243,9 +196,7 @@ func (a *Adapter) UpdateUserPassword(ctx context.Context, userID, password strin
 		method:     http.MethodPatch,
 		path:       "/api/users/%s/password",
 		pathParams: []string{userID},
-		body: map[string]interface{}{
-			"password": password,
-		},
+		body:       update,
 	})
 	return err
 }

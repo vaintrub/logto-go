@@ -134,26 +134,15 @@ func (a *Adapter) GetOrganizationRoleScopes(ctx context.Context, roleID string) 
 }
 
 // CreateOrganizationRole creates a new organization role
-func (a *Adapter) CreateOrganizationRole(ctx context.Context, name, description string, roleType models.OrganizationRoleType, scopeIDs []string) (*models.OrganizationRole, error) {
-	if name == "" {
+func (a *Adapter) CreateOrganizationRole(ctx context.Context, role models.OrganizationRoleCreate) (*models.OrganizationRole, error) {
+	if role.Name == "" {
 		return nil, &ValidationError{Field: "name", Message: "cannot be empty"}
-	}
-
-	payload := map[string]interface{}{
-		"name":        name,
-		"description": description,
-	}
-	if roleType != "" {
-		payload["type"] = roleType
-	}
-	if len(scopeIDs) > 0 {
-		payload["organizationScopeIds"] = scopeIDs
 	}
 
 	body, _, err := a.doRequest(ctx, requestConfig{
 		method:      http.MethodPost,
 		path:        "/api/organization-roles",
-		body:        payload,
+		body:        role,
 		expectCodes: []int{http.StatusCreated, http.StatusOK},
 	})
 	if err != nil {
@@ -164,24 +153,16 @@ func (a *Adapter) CreateOrganizationRole(ctx context.Context, name, description 
 }
 
 // UpdateOrganizationRole updates an organization role
-func (a *Adapter) UpdateOrganizationRole(ctx context.Context, roleID, name, description string) (*models.OrganizationRole, error) {
+func (a *Adapter) UpdateOrganizationRole(ctx context.Context, roleID string, update models.OrganizationRoleUpdate) (*models.OrganizationRole, error) {
 	if roleID == "" {
 		return nil, &ValidationError{Field: "roleID", Message: "cannot be empty"}
-	}
-
-	payload := make(map[string]interface{})
-	if name != "" {
-		payload["name"] = name
-	}
-	if description != "" {
-		payload["description"] = description
 	}
 
 	body, _, err := a.doRequest(ctx, requestConfig{
 		method:      http.MethodPatch,
 		path:        "/api/organization-roles/%s",
 		pathParams:  []string{roleID},
-		body:        payload,
+		body:        update,
 		expectCodes: []int{http.StatusOK},
 	})
 	if err != nil {
@@ -313,18 +294,15 @@ func (a *Adapter) ListOrganizationScopes(ctx context.Context) ([]models.Organiza
 }
 
 // CreateOrganizationScope creates a new organization scope
-func (a *Adapter) CreateOrganizationScope(ctx context.Context, name, description string) (*models.OrganizationScope, error) {
-	if name == "" {
+func (a *Adapter) CreateOrganizationScope(ctx context.Context, scope models.OrganizationScopeCreate) (*models.OrganizationScope, error) {
+	if scope.Name == "" {
 		return nil, &ValidationError{Field: "name", Message: "cannot be empty"}
 	}
 
 	body, _, err := a.doRequest(ctx, requestConfig{
-		method: http.MethodPost,
-		path:   "/api/organization-scopes",
-		body: map[string]interface{}{
-			"name":        name,
-			"description": description,
-		},
+		method:      http.MethodPost,
+		path:        "/api/organization-scopes",
+		body:        scope,
 		expectCodes: []int{http.StatusCreated, http.StatusOK},
 	})
 	if err != nil {
@@ -335,24 +313,16 @@ func (a *Adapter) CreateOrganizationScope(ctx context.Context, name, description
 }
 
 // UpdateOrganizationScope updates an organization scope
-func (a *Adapter) UpdateOrganizationScope(ctx context.Context, scopeID, name, description string) (*models.OrganizationScope, error) {
+func (a *Adapter) UpdateOrganizationScope(ctx context.Context, scopeID string, update models.OrganizationScopeUpdate) (*models.OrganizationScope, error) {
 	if scopeID == "" {
 		return nil, &ValidationError{Field: "scopeID", Message: "cannot be empty"}
-	}
-
-	payload := make(map[string]interface{})
-	if name != "" {
-		payload["name"] = name
-	}
-	if description != "" {
-		payload["description"] = description
 	}
 
 	body, _, err := a.doRequest(ctx, requestConfig{
 		method:     http.MethodPatch,
 		path:       "/api/organization-scopes/%s",
 		pathParams: []string{scopeID},
-		body:       payload,
+		body:       update,
 	})
 	if err != nil {
 		return nil, err

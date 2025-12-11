@@ -27,3 +27,27 @@ type OrganizationMember struct {
 	User  *User
 	Roles []OrganizationRole
 }
+
+// OrganizationCreate represents fields for creating a new organization.
+type OrganizationCreate struct {
+	Name          string                 `json:"name"`
+	Description   string                 `json:"description,omitempty"`
+	CustomData    map[string]interface{} `json:"customData,omitempty"`
+	IsMfaRequired *bool                  `json:"isMfaRequired,omitempty"`
+	Branding      *OrganizationBranding  `json:"branding,omitempty"`
+}
+
+// OrganizationUpdate represents fields for updating an organization.
+// Use pointers to distinguish between "not set" and "set to empty".
+type OrganizationUpdate struct {
+	Name          *string                `json:"name,omitempty"`
+	Description   *string                `json:"description,omitempty"`
+	CustomData    map[string]interface{} `json:"customData,omitempty"`
+	IsMfaRequired *bool                  `json:"isMfaRequired,omitempty"`
+	Branding      *OrganizationBranding  `json:"branding,omitempty"`
+}
+
+// UserOrganizationRolesUpdate represents fields for replacing user roles in an organization.
+type UserOrganizationRolesUpdate struct {
+	OrganizationRoleIDs []string `json:"organizationRoleIds"`
+}
