@@ -7,7 +7,6 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"testing"
-	"time"
 )
 
 func TestBuildURL_EscapesPathParams(t *testing.T) {
@@ -66,47 +65,6 @@ func TestBuildURL_EscapesPathParams(t *testing.T) {
 				t.Errorf("buildURL() = %v, want %v", got, tt.want)
 			}
 		})
-	}
-}
-
-func TestDoRequest_UsesRetry(t *testing.T) {
-	attempts := 0
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Token endpoint
-		if r.URL.Path == "/oidc/token" {
-			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(map[string]interface{}{
-				"access_token": "test-token",
-				"expires_in":   3600,
-			})
-			return
-		}
-		// API endpoint - fail first time, succeed second
-		attempts++
-		if attempts == 1 {
-			w.WriteHeader(http.StatusServiceUnavailable)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_ = json.NewEncoder(w).Encode(map[string]string{"id": "test"})
-	}))
-	defer server.Close()
-
-	adapter, _ := New(server.URL, "app-id", "secret",
-		WithRetry(3, 10*time.Millisecond))
-
-	ctx := context.Background()
-	_, _, err := adapter.doRequest(ctx, requestConfig{
-		method: http.MethodGet,
-		path:   "/api/users/123",
-	})
-
-	if err != nil {
-		t.Errorf("doRequest() error = %v, expected success after retry", err)
-	}
-	if attempts != 2 {
-		t.Errorf("expected 2 attempts, got %d", attempts)
 	}
 }
 

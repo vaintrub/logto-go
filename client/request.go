@@ -20,7 +20,7 @@ type requestConfig struct {
 	expectCodes []int       // Expected HTTP status codes (default: 200)
 }
 
-// doRequest executes an API request with authentication, URL building, retry, and error handling.
+// doRequest executes an API request with authentication, URL building, and error handling.
 // Returns response body, status code, and error.
 func (a *Adapter) doRequest(ctx context.Context, cfg requestConfig) ([]byte, int, error) {
 	// 1. Authenticate
@@ -55,29 +55,24 @@ func (a *Adapter) doRequest(ctx context.Context, cfg requestConfig) ([]byte, int
 		req.Header.Set("Content-Type", "application/json")
 	}
 
-	// 6. Set GetBody for retry support
-	if bodyBytes != nil {
-		req.GetBody = func() (io.ReadCloser, error) {
-			return io.NopCloser(bytes.NewReader(bodyBytes)), nil
-		}
-	}
-
-	// 7. Execute with retry (respects retryMax option, default=1 means no retry)
-	resp, err := a.doWithRetry(ctx, req, bodyBytes)
+	// 6. Execute request
+	resp, err := a.httpClient.Do(req)
 	if err != nil {
 		return nil, 0, err
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	// 8. Read response body
-	respBody, err := io.ReadAll(resp.Body)
+	// 8. Read response body (with size limit to prevent DoS)
+	const maxResponseSize = 10 * 1024 * 1024 // 10MB
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
 	if err != nil {
 		return nil, resp.StatusCode, fmt.Errorf("failed to read response: %w", err)
 	}
 
 	// 9. Check status code
 	if !isExpectedStatus(resp.StatusCode, cfg.expectCodes) {
-		return respBody, resp.StatusCode, newAPIErrorFromResponse(resp.StatusCode, respBody)
+		requestID := resp.Header.Get("X-Request-Id")
+		return respBody, resp.StatusCode, newAPIErrorFromResponse(resp.StatusCode, respBody, requestID)
 	}
 
 	return respBody, resp.StatusCode, nil

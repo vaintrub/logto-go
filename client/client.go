@@ -16,24 +16,34 @@ type Client interface {
 	// M2M Auth
 	AuthenticateM2M(ctx context.Context) (accessToken string, expiresIn int, err error)
 
-	// Users (GET /users, GET /users/{userId}, POST /users, PATCH /users/{userId})
+	// Users (GET /users, GET /users/{userId}, POST /users, PATCH /users/{userId}, DELETE /users/{userId})
 	GetUser(ctx context.Context, userID string) (*models.User, error)
 	GetUserByEmail(ctx context.Context, email string) (*models.User, error)
-	ListUsers(ctx context.Context) ([]*models.User, error)
+	ListUsers(ctx context.Context) ([]models.User, error)
+	ListUsersIter(ctx context.Context, pageSize int) *UserIterator
 	CreateUser(ctx context.Context, username, password, name, primaryEmail string) (*models.User, error)
 	UpdateUser(ctx context.Context, userID string, update models.UserUpdate) (*models.User, error)
+	UpdateUserProfile(ctx context.Context, userID string, profile models.UserProfileUpdate) (*models.User, error)
 	UpdateUserCustomData(ctx context.Context, userID string, customData map[string]interface{}) (*models.User, error)
+	DeleteUser(ctx context.Context, userID string) error
+	SuspendUser(ctx context.Context, userID string, suspended bool) error
+
+	// User Password (GET/PATCH/POST /users/{userId}/password)
+	UpdateUserPassword(ctx context.Context, userID, password string) error
+	VerifyUserPassword(ctx context.Context, userID, password string) (bool, error)
+	HasUserPassword(ctx context.Context, userID string) (bool, error)
 
 	// Organizations (GET /organizations, GET /organizations/{id}, POST/PATCH/DELETE)
 	GetOrganization(ctx context.Context, orgID string) (*models.Organization, error)
-	ListOrganizations(ctx context.Context) ([]*models.Organization, error)
-	ListUserOrganizations(ctx context.Context, userID string) ([]*models.Organization, error)
+	ListOrganizations(ctx context.Context) ([]models.Organization, error)
+	ListOrganizationsIter(ctx context.Context, pageSize int) *OrganizationIterator
+	ListUserOrganizations(ctx context.Context, userID string) ([]models.Organization, error)
 	CreateOrganization(ctx context.Context, name, description string) (*models.Organization, error)
 	UpdateOrganization(ctx context.Context, orgID string, name, description string, customData map[string]interface{}) (*models.Organization, error)
 	DeleteOrganization(ctx context.Context, orgID string) error
 
 	// Organization Members (GET/POST/DELETE /organizations/{id}/users/*)
-	ListOrganizationMembers(ctx context.Context, orgID string) ([]*models.OrganizationMember, error)
+	ListOrganizationMembers(ctx context.Context, orgID string) ([]models.OrganizationMember, error)
 	AddUserToOrganization(ctx context.Context, orgID, userID string, roleIDs []string) error
 	AddUsersToOrganization(ctx context.Context, orgID string, userIDs []string) error // Batch add
 	RemoveUserFromOrganization(ctx context.Context, orgID, userID string) error
@@ -42,7 +52,7 @@ type Client interface {
 	GetUserRolesInOrganization(ctx context.Context, orgID, userID string) ([]models.OrganizationRole, error)
 
 	// Organization Applications (GET/POST/DELETE /organizations/{id}/applications/*)
-	ListOrganizationApplications(ctx context.Context, orgID string) ([]*models.Application, error)
+	ListOrganizationApplications(ctx context.Context, orgID string) ([]models.Application, error)
 	AddOrganizationApplications(ctx context.Context, orgID string, applicationIDs []string) error
 	RemoveOrganizationApplication(ctx context.Context, orgID, applicationID string) error
 	GetOrganizationApplicationRoles(ctx context.Context, orgID, applicationID string) ([]models.OrganizationRole, error)
@@ -56,8 +66,8 @@ type Client interface {
 	UpdateOrganizationRole(ctx context.Context, roleID, name, description string) (*models.OrganizationRole, error)
 	DeleteOrganizationRole(ctx context.Context, roleID string) error
 
-	// Organization Role Scopes (PUT/POST/DELETE /organization-roles/{id}/scopes)
-	// Note: Use GetOrganizationRole().Scopes to get role scopes
+	// Organization Role Scopes (GET/PUT/POST/DELETE /organization-roles/{id}/scopes)
+	GetOrganizationRoleScopes(ctx context.Context, roleID string) ([]models.OrganizationScope, error)
 	SetOrganizationRoleScopes(ctx context.Context, roleID string, scopeIDs []string) error
 	AddOrganizationRoleScopes(ctx context.Context, roleID string, scopeIDs []string) error
 	RemoveOrganizationRoleScope(ctx context.Context, roleID, scopeID string) error
@@ -74,50 +84,54 @@ type Client interface {
 
 	// API Resources (GET/POST/PATCH/DELETE /resources)
 	GetAPIResource(ctx context.Context, resourceID string) (*models.APIResource, error)
-	ListAPIResources(ctx context.Context) ([]*models.APIResource, error)
+	ListAPIResources(ctx context.Context) ([]models.APIResource, error)
 	CreateAPIResource(ctx context.Context, name, indicator string) (*models.APIResource, error)
 	UpdateAPIResource(ctx context.Context, resourceID, name string, accessTokenTTL *int) (*models.APIResource, error)
 	DeleteAPIResource(ctx context.Context, resourceID string) error
 
 	// API Resource Scopes (GET/POST/PATCH/DELETE /resources/{id}/scopes)
 	GetAPIResourceScope(ctx context.Context, resourceID, scopeID string) (*models.APIResourceScope, error)
-	ListAPIResourceScopes(ctx context.Context, resourceID string) ([]*models.APIResourceScope, error)
+	ListAPIResourceScopes(ctx context.Context, resourceID string) ([]models.APIResourceScope, error)
 	CreateAPIResourceScope(ctx context.Context, resourceID, name, description string) (*models.APIResourceScope, error)
 	UpdateAPIResourceScope(ctx context.Context, resourceID, scopeID, name, description string) (*models.APIResourceScope, error)
 	DeleteAPIResourceScope(ctx context.Context, resourceID, scopeID string) error
 
 	// Applications (GET/POST /applications)
-	ListApplications(ctx context.Context) ([]*models.Application, error)
+	ListApplications(ctx context.Context) ([]models.Application, error)
 	CreateApplication(ctx context.Context, app models.ApplicationCreate) (*models.Application, error)
 
 	// Roles - Global/Tenant-level roles (GET/POST/PATCH/DELETE /roles)
 	GetRole(ctx context.Context, roleID string) (*models.Role, error)
-	ListRoles(ctx context.Context) ([]*models.Role, error)
+	ListRoles(ctx context.Context) ([]models.Role, error)
 	CreateRole(ctx context.Context, name, description string, roleType models.RoleType, scopeIDs []string) (*models.Role, error)
 	UpdateRole(ctx context.Context, roleID, name, description string, isDefault *bool) (*models.Role, error)
 	DeleteRole(ctx context.Context, roleID string) error
 
 	// Role Scopes - API resource scopes assigned to roles (GET/POST/DELETE /roles/{id}/scopes)
-	ListRoleScopes(ctx context.Context, roleID string) ([]*models.APIResourceScope, error)
+	ListRoleScopes(ctx context.Context, roleID string) ([]models.APIResourceScope, error)
 	AssignRoleScopes(ctx context.Context, roleID string, scopeIDs []string) error
 	RemoveRoleScope(ctx context.Context, roleID, scopeID string) error
 
 	// Role Users - Users assigned to roles (GET/POST/DELETE /roles/{id}/users)
-	ListRoleUsers(ctx context.Context, roleID string) ([]*models.User, error)
+	ListRoleUsers(ctx context.Context, roleID string) ([]models.User, error)
 	AssignRoleToUsers(ctx context.Context, roleID string, userIDs []string) error
 	RemoveRoleFromUser(ctx context.Context, roleID, userID string) error
 
 	// Role Applications - M2M applications assigned to roles (GET/POST/DELETE /roles/{id}/applications)
-	ListRoleApplications(ctx context.Context, roleID string) ([]*models.Application, error)
+	ListRoleApplications(ctx context.Context, roleID string) ([]models.Application, error)
 	AssignRoleToApplications(ctx context.Context, roleID string, applicationIDs []string) error
 	RemoveRoleFromApplication(ctx context.Context, roleID, applicationID string) error
 
 	// Invitations (GET/POST/DELETE /organization-invitations)
 	CreateOrganizationInvitation(ctx context.Context, orgID, inviterID, email string, roleIDs []string, expiresAtMs int64) (*models.OrganizationInvitation, error)
-	ListOrganizationInvitations(ctx context.Context, orgID string) ([]*models.OrganizationInvitation, error)
+	ListOrganizationInvitations(ctx context.Context, orgID string) ([]models.OrganizationInvitation, error)
 	GetOrganizationInvitation(ctx context.Context, invitationID string) (*models.OrganizationInvitation, error)
 	DeleteOrganizationInvitation(ctx context.Context, invitationID string) error
 	SendInvitationMessage(ctx context.Context, invitationID, magicLink string) error
+
+	// Verification Codes (POST /api/verification-codes)
+	RequestVerificationCode(ctx context.Context, req VerificationCodeRequest) error
+	VerifyCode(ctx context.Context, req VerifyCodeRequest) error
 
 	// One-Time Tokens (POST /api/one-time-tokens)
 	CreateOneTimeToken(ctx context.Context, email string, expiresIn int, jitOrgIDs []string) (*models.OneTimeTokenResult, error)

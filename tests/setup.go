@@ -191,7 +191,6 @@ func Setup(ctx context.Context) (*Env, error) {
 	// 6. Create Logto client
 	c, err := client.New(env.LogtoEndpoint, testM2MAppID, testM2MAppSecret,
 		client.WithTimeout(30*time.Second),
-		client.WithRetry(3, 1*time.Second),
 	)
 	if err != nil {
 		env.Teardown(ctx)
