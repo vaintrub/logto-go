@@ -93,16 +93,6 @@ func (e *ValidationError) Unwrap() error {
 	return ErrInvalidInput
 }
 
-// newAPIError creates an APIError from HTTP status and response body.
-func newAPIError(statusCode int, body []byte, requestID string) *APIError {
-	return &APIError{
-		StatusCode: statusCode,
-		Message:    string(body),
-		RequestID:  requestID,
-		Body:       body,
-	}
-}
-
 // newAPIErrorFromResponse creates an APIError with JSON parsing support.
 // It attempts to extract structured error info from the response body.
 func newAPIErrorFromResponse(statusCode int, body []byte, requestID string) *APIError {

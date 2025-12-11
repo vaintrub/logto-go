@@ -28,5 +28,5 @@ func (t *UnixMilliTime) UnmarshalJSON(data []byte) error {
 // MarshalJSON implements json.Marshaler for UnixMilliTime.
 // It marshals as Unix milliseconds to match Logto API format.
 func (t UnixMilliTime) MarshalJSON() ([]byte, error) {
-	return json.Marshal(t.Time.UnixMilli())
+	return json.Marshal(t.UnixMilli())
 }
