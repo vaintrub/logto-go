@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.0.4](https://github.com/vaintrub/logto-go/compare/v1.0.3...v1.0.4) (2025-12-11)
+
+
+### Features
+
+* added auth for orgs ([5b61b5b](https://github.com/vaintrub/logto-go/commit/5b61b5b940d5401eef533cd70206b4e153789287))
+* added global roles support ([e17caea](https://github.com/vaintrub/logto-go/commit/e17caea014ee8aabc141c880efe617b2b1ba52a6))
+* added global roles support ([76cb068](https://github.com/vaintrub/logto-go/commit/76cb068bb13a8255dbf1362c8f900a45352d5bc1))
+
+
+### Miscellaneous Chores
+
+* release 1.0.4 ([9ccbab3](https://github.com/vaintrub/logto-go/commit/9ccbab39f02e2b5c14105d4f2a2eb7196da65195))
+
 ## [1.0.3](https://github.com/vaintrub/logto-go/compare/v1.0.2...v1.0.3) (2025-12-02)
 
 
