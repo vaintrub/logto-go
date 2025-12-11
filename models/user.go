@@ -70,7 +70,53 @@ type User struct {
 }
 
 // UserUpdate represents fields that can be updated for a user.
+// Use pointers to distinguish between "not set" and "set to empty".
 type UserUpdate struct {
-	Name   *string
-	Avatar *string
+	// Basic profile fields
+	Username *string `json:"username,omitempty"`
+	Name     *string `json:"name,omitempty"`
+	Avatar   *string `json:"avatar,omitempty"`
+
+	// Primary identifiers
+	PrimaryEmail *string `json:"primaryEmail,omitempty"`
+	PrimaryPhone *string `json:"primaryPhone,omitempty"`
+
+	// Custom data - merged with existing data
+	CustomData map[string]interface{} `json:"customData,omitempty"`
+
+	// Profile - detailed user profile fields (familyName, givenName, etc.)
+	Profile *UserProfileUpdate `json:"profile,omitempty"`
+}
+
+// UserCreate represents fields for creating a new user.
+type UserCreate struct {
+	Username     string                 `json:"username"`
+	Password     string                 `json:"password"`
+	Name         string                 `json:"name,omitempty"`
+	PrimaryEmail string                 `json:"primaryEmail,omitempty"`
+	PrimaryPhone string                 `json:"primaryPhone,omitempty"`
+	Avatar       string                 `json:"avatar,omitempty"`
+	CustomData   map[string]interface{} `json:"customData,omitempty"`
+	Profile      *UserProfileUpdate     `json:"profile,omitempty"`
+}
+
+// UserProfileUpdate represents fields for updating user profile.
+type UserProfileUpdate struct {
+	FamilyName        *string         `json:"familyName,omitempty"`
+	GivenName         *string         `json:"givenName,omitempty"`
+	MiddleName        *string         `json:"middleName,omitempty"`
+	Nickname          *string         `json:"nickname,omitempty"`
+	PreferredUsername *string         `json:"preferredUsername,omitempty"`
+	Profile           *string         `json:"profile,omitempty"`
+	Website           *string         `json:"website,omitempty"`
+	Gender            *string         `json:"gender,omitempty"`
+	Birthdate         *string         `json:"birthdate,omitempty"`
+	Zoneinfo          *string         `json:"zoneinfo,omitempty"`
+	Locale            *string         `json:"locale,omitempty"`
+	Address           *ProfileAddress `json:"address,omitempty"`
+}
+
+// UserPasswordUpdate represents fields for updating a user's password.
+type UserPasswordUpdate struct {
+	Password string `json:"password"`
 }

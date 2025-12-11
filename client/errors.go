@@ -35,6 +35,8 @@ type APIError struct {
 	StatusCode int    // HTTP status code
 	Message    string // Error message from API
 	Code       string // Error code from API (if available)
+	RequestID  string // Request ID from X-Request-Id header (for debugging)
+	Body       []byte // Raw response body (for debugging)
 }
 
 // Error implements the error interface.
@@ -91,20 +93,14 @@ func (e *ValidationError) Unwrap() error {
 	return ErrInvalidInput
 }
 
-// newAPIError creates an APIError from HTTP status and response body.
-func newAPIError(statusCode int, body []byte) *APIError {
-	return &APIError{
-		StatusCode: statusCode,
-		Message:    string(body),
-	}
-}
-
 // newAPIErrorFromResponse creates an APIError with JSON parsing support.
 // It attempts to extract structured error info from the response body.
-func newAPIErrorFromResponse(statusCode int, body []byte) *APIError {
+func newAPIErrorFromResponse(statusCode int, body []byte, requestID string) *APIError {
 	apiErr := &APIError{
 		StatusCode: statusCode,
 		Message:    string(body),
+		RequestID:  requestID,
+		Body:       body,
 	}
 
 	// Try to parse JSON error response from Logto
@@ -132,29 +128,6 @@ func isExpectedStatus(code int, expected []int) bool {
 		if code == e {
 			return true
 		}
-	}
-	return false
-}
-
-// isRetryable returns true if the error represents a retryable condition.
-func isRetryable(err error) bool {
-	var apiErr *APIError
-	if errors.As(err, &apiErr) {
-		return isRetryableStatus(apiErr.StatusCode)
-	}
-	return false
-}
-
-// isRetryableStatus returns true if the HTTP status code is retryable.
-func isRetryableStatus(statusCode int) bool {
-	switch statusCode {
-	case 408, // Request Timeout
-		429, // Too Many Requests
-		500, // Internal Server Error
-		502, // Bad Gateway
-		503, // Service Unavailable
-		504: // Gateway Timeout
-		return true
 	}
 	return false
 }

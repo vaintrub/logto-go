@@ -9,6 +9,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/vaintrub/logto-go/models"
 )
 
 // === Helper functions ===
@@ -20,7 +22,6 @@ func newTestAdapter(t *testing.T, serverURL string) *Adapter {
 		serverURL,
 		"test-app-id",
 		"test-app-secret",
-		WithRetry(3, 10*time.Millisecond),
 	)
 	if err != nil {
 		t.Fatalf("failed to create adapter: %v", err)
@@ -115,12 +116,6 @@ func TestNew_Options(t *testing.T) {
 		if adapter.opts.timeout != 5*time.Second {
 			t.Errorf("expected default timeout 5s, got %v", adapter.opts.timeout)
 		}
-		if adapter.opts.retryMax != 1 {
-			t.Errorf("expected default retryMax 1 (no retries), got %d", adapter.opts.retryMax)
-		}
-		if adapter.opts.retryBackoff != 500*time.Millisecond {
-			t.Errorf("expected default retryBackoff 500ms, got %v", adapter.opts.retryBackoff)
-		}
 		if adapter.opts.resource != "https://default.logto.app/api" {
 			t.Errorf("expected default resource, got %s", adapter.opts.resource)
 		}
@@ -133,16 +128,6 @@ func TestNew_Options(t *testing.T) {
 		adapter, _ := New("http://localhost", "app-id", "secret", WithTimeout(60*time.Second))
 		if adapter.opts.timeout != 60*time.Second {
 			t.Errorf("expected timeout 60s, got %v", adapter.opts.timeout)
-		}
-	})
-
-	t.Run("WithRetry sets retry config", func(t *testing.T) {
-		adapter, _ := New("http://localhost", "app-id", "secret", WithRetry(5, 1*time.Second))
-		if adapter.opts.retryMax != 5 {
-			t.Errorf("expected retryMax 5, got %d", adapter.opts.retryMax)
-		}
-		if adapter.opts.retryBackoff != 1*time.Second {
-			t.Errorf("expected retryBackoff 1s, got %v", adapter.opts.retryBackoff)
 		}
 	})
 
@@ -227,6 +212,93 @@ func TestAPIError_Error(t *testing.T) {
 	})
 }
 
+func TestValidationError_Error(t *testing.T) {
+	err := &ValidationError{Field: "name", Message: "cannot be empty"}
+	expected := "validation error: name: cannot be empty"
+	if err.Error() != expected {
+		t.Errorf("got %q, want %q", err.Error(), expected)
+	}
+}
+
+func TestAPIError_Unwrap(t *testing.T) {
+	err := &APIError{StatusCode: 404, Message: "not found"}
+	if err.Unwrap() != nil {
+		t.Error("APIError.Unwrap() should return nil")
+	}
+}
+
+func TestValidationError_Unwrap(t *testing.T) {
+	err := &ValidationError{Field: "test", Message: "error"}
+	if err.Unwrap() != ErrInvalidInput {
+		t.Error("ValidationError.Unwrap() should return ErrInvalidInput")
+	}
+}
+
+func TestNewAPIErrorFromResponse(t *testing.T) {
+	tests := []struct {
+		name        string
+		statusCode  int
+		body        string
+		requestID   string
+		wantMessage string
+		wantCode    string
+	}{
+		{
+			name:        "json with message and code",
+			statusCode:  400,
+			body:        `{"message": "Invalid input", "code": "INVALID_INPUT"}`,
+			requestID:   "req-123",
+			wantMessage: "Invalid input",
+			wantCode:    "INVALID_INPUT",
+		},
+		{
+			name:        "json with only message",
+			statusCode:  404,
+			body:        `{"message": "User not found"}`,
+			requestID:   "",
+			wantMessage: "User not found",
+			wantCode:    "",
+		},
+		{
+			name:        "plain text",
+			statusCode:  500,
+			body:        `Internal Server Error`,
+			requestID:   "req-456",
+			wantMessage: "Internal Server Error",
+			wantCode:    "",
+		},
+		{
+			name:        "empty body",
+			statusCode:  204,
+			body:        "",
+			requestID:   "",
+			wantMessage: "",
+			wantCode:    "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := newAPIErrorFromResponse(tt.statusCode, []byte(tt.body), tt.requestID)
+			if err.StatusCode != tt.statusCode {
+				t.Errorf("StatusCode = %d, want %d", err.StatusCode, tt.statusCode)
+			}
+			if err.Message != tt.wantMessage {
+				t.Errorf("Message = %q, want %q", err.Message, tt.wantMessage)
+			}
+			if err.Code != tt.wantCode {
+				t.Errorf("Code = %q, want %q", err.Code, tt.wantCode)
+			}
+			if err.RequestID != tt.requestID {
+				t.Errorf("RequestID = %q, want %q", err.RequestID, tt.requestID)
+			}
+			if string(err.Body) != tt.body {
+				t.Errorf("Body = %q, want %q", string(err.Body), tt.body)
+			}
+		})
+	}
+}
+
 // === HTTP API tests ===
 
 func TestGetUser_Success(t *testing.T) {
@@ -287,10 +359,6 @@ func TestGetUser_NotFound(t *testing.T) {
 		t.Fatal("expected error, got nil")
 	}
 
-	// Current implementation doesn't use APIError for GetUser, so we just check error is not nil
-	if err == nil {
-		t.Error("expected error for not found user")
-	}
 }
 
 func TestListUsers_EmptyArray(t *testing.T) {
@@ -318,69 +386,6 @@ func TestListUsers_EmptyArray(t *testing.T) {
 	if len(users) != 0 {
 		t.Errorf("expected empty slice, got %d users", len(users))
 	}
-}
-
-// === Retry tests ===
-
-func TestRetry_SuccessAfterTransientError(t *testing.T) {
-	var requestCount atomic.Int32
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if mockM2MTokenResponse(w, r) {
-			return
-		}
-
-		if r.URL.Path == "/api/users" {
-			count := requestCount.Add(1)
-			if count < 3 {
-				// First two requests fail with 503
-				w.WriteHeader(http.StatusServiceUnavailable)
-				return
-			}
-			// Third request succeeds
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`[]`))
-			return
-		}
-
-		http.NotFound(w, r)
-	}))
-	defer server.Close()
-
-	adapter := newTestAdapter(t, server.URL)
-	_, err := adapter.ListUsers(context.Background())
-
-	// Note: Current implementation doesn't use retry for ListUsers
-	// This test verifies the basic flow, retry is implemented in doWithRetry
-	if err != nil {
-		// Expected since ListUsers doesn't use retry
-		t.Logf("error (expected without retry): %v", err)
-	}
-}
-
-func TestRetry_NoRetryFor4xx(t *testing.T) {
-	var requestCount atomic.Int32
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if mockM2MTokenResponse(w, r) {
-			return
-		}
-
-		requestCount.Add(1)
-		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte(`{"message": "bad request"}`))
-	}))
-	defer server.Close()
-
-	adapter := newTestAdapter(t, server.URL)
-	_, err := adapter.GetUser(context.Background(), "user-123")
-
-	if err == nil {
-		t.Fatal("expected error for 400 response")
-	}
-
-	// 4xx errors should not be retried
-	// Note: Current implementation doesn't track request count in GetUser
 }
 
 // === Iterator tests ===
@@ -524,210 +529,6 @@ func TestUserIterator_Error(t *testing.T) {
 	}
 }
 
-// === isRetryableStatus tests ===
-
-func TestIsRetryableStatus(t *testing.T) {
-	retryable := []int{408, 429, 500, 502, 503, 504}
-	nonRetryable := []int{200, 201, 400, 401, 403, 404, 422}
-
-	for _, code := range retryable {
-		if !isRetryableStatus(code) {
-			t.Errorf("expected %d to be retryable", code)
-		}
-	}
-
-	for _, code := range nonRetryable {
-		if isRetryableStatus(code) {
-			t.Errorf("expected %d to not be retryable", code)
-		}
-	}
-}
-
-func TestIsRetryable(t *testing.T) {
-	tests := []struct {
-		name     string
-		err      error
-		expected bool
-	}{
-		{"500 error is retryable", &APIError{StatusCode: 500}, true},
-		{"503 error is retryable", &APIError{StatusCode: 503}, true},
-		{"429 error is retryable", &APIError{StatusCode: 429}, true},
-		{"400 error is not retryable", &APIError{StatusCode: 400}, false},
-		{"404 error is not retryable", &APIError{StatusCode: 404}, false},
-		{"generic error is not retryable", errors.New("generic"), false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := isRetryable(tt.err); got != tt.expected {
-				t.Errorf("isRetryable() = %v, want %v", got, tt.expected)
-			}
-		})
-	}
-}
-
-// === Retry logic tests ===
-
-func TestDoWithRetry_Success(t *testing.T) {
-	var requestCount atomic.Int32
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requestCount.Add(1)
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"status": "ok"}`))
-	}))
-	defer server.Close()
-
-	adapter := newTestAdapter(t, server.URL)
-
-	req, _ := http.NewRequestWithContext(context.Background(), "GET", server.URL+"/test", nil)
-	resp, err := adapter.doWithRetry(context.Background(), req, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("expected status 200, got %d", resp.StatusCode)
-	}
-	if requestCount.Load() != 1 {
-		t.Errorf("expected 1 request, got %d", requestCount.Load())
-	}
-}
-
-func TestDoWithRetry_RetryOnTransientError(t *testing.T) {
-	var requestCount atomic.Int32
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		count := requestCount.Add(1)
-		if count < 3 {
-			w.WriteHeader(http.StatusServiceUnavailable)
-			return
-		}
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"status": "ok"}`))
-	}))
-	defer server.Close()
-
-	adapter := newTestAdapter(t, server.URL)
-
-	req, _ := http.NewRequestWithContext(context.Background(), "GET", server.URL+"/test", nil)
-	resp, err := adapter.doWithRetry(context.Background(), req, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("expected status 200, got %d", resp.StatusCode)
-	}
-	if requestCount.Load() != 3 {
-		t.Errorf("expected 3 requests (2 retries), got %d", requestCount.Load())
-	}
-}
-
-func TestDoWithRetry_MaxAttemptsExceeded(t *testing.T) {
-	var requestCount atomic.Int32
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requestCount.Add(1)
-		w.WriteHeader(http.StatusServiceUnavailable)
-	}))
-	defer server.Close()
-
-	adapter := newTestAdapter(t, server.URL)
-
-	req, _ := http.NewRequestWithContext(context.Background(), "GET", server.URL+"/test", nil)
-	_, err := adapter.doWithRetry(context.Background(), req, nil)
-
-	if err == nil {
-		t.Fatal("expected error after max retries")
-	}
-
-	if requestCount.Load() != 3 {
-		t.Errorf("expected 3 requests (max attempts), got %d", requestCount.Load())
-	}
-}
-
-func TestDoWithRetry_NoRetryOn4xx(t *testing.T) {
-	var requestCount atomic.Int32
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requestCount.Add(1)
-		w.WriteHeader(http.StatusBadRequest)
-	}))
-	defer server.Close()
-
-	adapter := newTestAdapter(t, server.URL)
-
-	req, _ := http.NewRequestWithContext(context.Background(), "GET", server.URL+"/test", nil)
-	resp, err := adapter.doWithRetry(context.Background(), req, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	// 4xx responses are returned without retry
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Errorf("expected status 400, got %d", resp.StatusCode)
-	}
-	if requestCount.Load() != 1 {
-		t.Errorf("expected 1 request (no retry for 4xx), got %d", requestCount.Load())
-	}
-}
-
-func TestDoWithRetry_ContextCancellation(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusServiceUnavailable)
-	}))
-	defer server.Close()
-
-	adapter := newTestAdapter(t, server.URL)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // Cancel immediately
-
-	req, _ := http.NewRequestWithContext(ctx, "GET", server.URL+"/test", nil)
-	_, err := adapter.doWithRetry(ctx, req, nil)
-
-	if err == nil {
-		t.Fatal("expected error for cancelled context")
-	}
-}
-
-func TestNextBackoff(t *testing.T) {
-	adapter, _ := New("http://localhost", "app-id", "secret", WithRetry(3, 100*time.Millisecond))
-
-	backoff := 100 * time.Millisecond
-	nextBackoff := adapter.nextBackoff(backoff)
-
-	// nextBackoff should be between 200ms (2x) and 250ms (2x + 50% jitter)
-	if nextBackoff < 200*time.Millisecond || nextBackoff > 250*time.Millisecond {
-		t.Errorf("expected backoff between 200ms and 250ms, got %v", nextBackoff)
-	}
-}
-
-func TestShouldRetry_LastAttempt(t *testing.T) {
-	adapter, _ := New("http://localhost", "app-id", "secret", WithRetry(3, 10*time.Millisecond))
-
-	// On last attempt (attempt 2 when max is 3), should return false
-	if adapter.shouldRetry(context.Background(), 2, 10*time.Millisecond) {
-		t.Error("should not retry on last attempt")
-	}
-}
-
-func TestShouldRetry_ContextCancelled(t *testing.T) {
-	adapter, _ := New("http://localhost", "app-id", "secret", WithRetry(3, 100*time.Millisecond))
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	// Should return false immediately when context is cancelled
-	if adapter.shouldRetry(ctx, 0, 100*time.Millisecond) {
-		t.Error("should not retry when context is cancelled")
-	}
-}
-
 // === M2M Authentication tests ===
 
 func TestAuthenticateM2M_Success(t *testing.T) {
@@ -745,16 +546,16 @@ func TestAuthenticateM2M_Success(t *testing.T) {
 	defer server.Close()
 
 	adapter := newTestAdapter(t, server.URL)
-	token, expiresIn, err := adapter.AuthenticateM2M(context.Background())
+	result, err := adapter.AuthenticateM2M(context.Background())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if token != "test-access-token" {
-		t.Errorf("expected token 'test-access-token', got %q", token)
+	if result.AccessToken != "test-access-token" {
+		t.Errorf("expected token 'test-access-token', got %q", result.AccessToken)
 	}
-	if expiresIn != 3600 {
-		t.Errorf("expected expiresIn 3600, got %d", expiresIn)
+	if result.ExpiresIn != 3600 {
+		t.Errorf("expected expiresIn 3600, got %d", result.ExpiresIn)
 	}
 }
 
@@ -778,13 +579,13 @@ func TestAuthenticateM2M_CachesToken(t *testing.T) {
 	adapter := newTestAdapter(t, server.URL)
 
 	// First call
-	_, _, err := adapter.AuthenticateM2M(context.Background())
+	_, err := adapter.AuthenticateM2M(context.Background())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	// Second call should use cache
-	_, _, err = adapter.AuthenticateM2M(context.Background())
+	_, err = adapter.AuthenticateM2M(context.Background())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -821,7 +622,7 @@ func TestAuthenticateM2M_ConcurrentAccess(t *testing.T) {
 
 	for i := 0; i < numGoroutines; i++ {
 		go func() {
-			_, _, err := adapter.AuthenticateM2M(context.Background())
+			_, err := adapter.AuthenticateM2M(context.Background())
 			done <- err
 		}()
 	}
@@ -837,5 +638,315 @@ func TestAuthenticateM2M_ConcurrentAccess(t *testing.T) {
 	count := callCount.Load()
 	if count != 1 {
 		t.Errorf("expected 1 token request (race condition protection), got %d", count)
+	}
+}
+
+// === CRUD Validation tests ===
+
+func TestCRUDValidation_EmptyIDs(t *testing.T) {
+	adapter, _ := New("http://localhost", "app-id", "secret")
+
+	tests := []struct {
+		name  string
+		fn    func() error
+		field string
+	}{
+		{"GetUser empty userID", func() error {
+			_, err := adapter.GetUser(context.Background(), "")
+			return err
+		}, "userID"},
+		{"GetOrganization empty orgID", func() error {
+			_, err := adapter.GetOrganization(context.Background(), "")
+			return err
+		}, "orgID"},
+		{"GetOrganizationRole empty roleID", func() error {
+			_, err := adapter.GetOrganizationRole(context.Background(), "")
+			return err
+		}, "roleID"},
+		{"GetAPIResource empty resourceID", func() error {
+			_, err := adapter.GetAPIResource(context.Background(), "")
+			return err
+		}, "resourceID"},
+		{"DeleteOrganization empty orgID", func() error {
+			return adapter.DeleteOrganization(context.Background(), "")
+		}, "orgID"},
+		{"RemoveUserFromOrganization empty orgID", func() error {
+			return adapter.RemoveUserFromOrganization(context.Background(), "", "user-123")
+		}, "orgID"},
+		{"RemoveUserFromOrganization empty userID", func() error {
+			return adapter.RemoveUserFromOrganization(context.Background(), "org-123", "")
+		}, "userID"},
+		{"ListOrganizationMembers empty orgID", func() error {
+			_, err := adapter.ListOrganizationMembers(context.Background(), "")
+			return err
+		}, "orgID"},
+		{"ListAPIResourceScopes empty resourceID", func() error {
+			_, err := adapter.ListAPIResourceScopes(context.Background(), "")
+			return err
+		}, "resourceID"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.fn()
+			if err == nil {
+				t.Error("expected validation error, got nil")
+				return
+			}
+			if !errors.Is(err, ErrInvalidInput) {
+				t.Errorf("expected ErrInvalidInput, got %v", err)
+			}
+			var valErr *ValidationError
+			if errors.As(err, &valErr) {
+				if valErr.Field != tt.field {
+					t.Errorf("expected field %q, got %q", tt.field, valErr.Field)
+				}
+			}
+		})
+	}
+}
+
+func TestCRUDValidation_EmptyNames(t *testing.T) {
+	adapter, _ := New("http://localhost", "app-id", "secret")
+
+	tests := []struct {
+		name  string
+		fn    func() error
+		field string
+	}{
+		{"CreateOrganization empty name", func() error {
+			_, err := adapter.CreateOrganization(context.Background(), models.OrganizationCreate{Description: "description"})
+			return err
+		}, "name"},
+		{"CreateOrganizationRole empty name", func() error {
+			_, err := adapter.CreateOrganizationRole(context.Background(), models.OrganizationRoleCreate{Description: "description"})
+			return err
+		}, "name"},
+		{"CreateOrganizationScope empty name", func() error {
+			_, err := adapter.CreateOrganizationScope(context.Background(), models.OrganizationScopeCreate{Description: "description"})
+			return err
+		}, "name"},
+		{"CreateAPIResource empty name", func() error {
+			_, err := adapter.CreateAPIResource(context.Background(), models.APIResourceCreate{Indicator: "https://api.example.com"})
+			return err
+		}, "name"},
+		{"CreateAPIResource empty indicator", func() error {
+			_, err := adapter.CreateAPIResource(context.Background(), models.APIResourceCreate{Name: "Test API"})
+			return err
+		}, "indicator"},
+		{"CreateAPIResourceScope empty name", func() error {
+			_, err := adapter.CreateAPIResourceScope(context.Background(), "resource-123", models.APIResourceScopeCreate{Description: "description"})
+			return err
+		}, "name"},
+		{"CreateAPIResourceScope empty resourceID", func() error {
+			_, err := adapter.CreateAPIResourceScope(context.Background(), "", models.APIResourceScopeCreate{Name: "scope", Description: "description"})
+			return err
+		}, "resourceID"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.fn()
+			if err == nil {
+				t.Error("expected validation error, got nil")
+				return
+			}
+			if !errors.Is(err, ErrInvalidInput) {
+				t.Errorf("expected ErrInvalidInput, got %v", err)
+			}
+			var valErr *ValidationError
+			if errors.As(err, &valErr) {
+				if valErr.Field != tt.field {
+					t.Errorf("expected field %q, got %q", tt.field, valErr.Field)
+				}
+			}
+		})
+	}
+}
+
+// === Verification Code tests ===
+
+func TestRequestVerificationCode_Success(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if mockM2MTokenResponse(w, r) {
+			return
+		}
+
+		if r.URL.Path == "/api/verification-codes" && r.Method == http.MethodPost {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+
+	adapter := newTestAdapter(t, server.URL)
+
+	// Test with email
+	err := adapter.RequestVerificationCode(context.Background(), VerificationCodeRequest{
+		Email: "test@example.com",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRequestVerificationCode_SuccessWithPhone(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if mockM2MTokenResponse(w, r) {
+			return
+		}
+
+		if r.URL.Path == "/api/verification-codes" && r.Method == http.MethodPost {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+
+	adapter := newTestAdapter(t, server.URL)
+
+	// Test with phone
+	err := adapter.RequestVerificationCode(context.Background(), VerificationCodeRequest{
+		Phone: "+1234567890",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRequestVerificationCode_Validation(t *testing.T) {
+	adapter, _ := New("http://localhost", "app-id", "secret")
+
+	tests := []struct {
+		name    string
+		req     VerificationCodeRequest
+		wantErr string
+	}{
+		{
+			name:    "empty email and phone",
+			req:     VerificationCodeRequest{},
+			wantErr: "either email or phone must be provided",
+		},
+		{
+			name:    "both email and phone",
+			req:     VerificationCodeRequest{Email: "test@example.com", Phone: "+1234567890"},
+			wantErr: "only one of email or phone should be provided",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := adapter.RequestVerificationCode(context.Background(), tt.req)
+			if err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			if !errors.Is(err, ErrInvalidInput) {
+				t.Errorf("expected ErrInvalidInput, got %v", err)
+			}
+			var valErr *ValidationError
+			if errors.As(err, &valErr) {
+				if valErr.Message != tt.wantErr {
+					t.Errorf("expected message %q, got %q", tt.wantErr, valErr.Message)
+				}
+			}
+		})
+	}
+}
+
+func TestVerifyCode_Success(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if mockM2MTokenResponse(w, r) {
+			return
+		}
+
+		if r.URL.Path == "/api/verification-codes/verify" && r.Method == http.MethodPost {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+
+	adapter := newTestAdapter(t, server.URL)
+
+	err := adapter.VerifyCode(context.Background(), VerifyCodeRequest{
+		Email:            "test@example.com",
+		VerificationCode: "123456",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestVerifyCode_SuccessWithPhone(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if mockM2MTokenResponse(w, r) {
+			return
+		}
+
+		if r.URL.Path == "/api/verification-codes/verify" && r.Method == http.MethodPost {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+
+	adapter := newTestAdapter(t, server.URL)
+
+	err := adapter.VerifyCode(context.Background(), VerifyCodeRequest{
+		Phone:            "+1234567890",
+		VerificationCode: "123456",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestVerifyCode_Validation(t *testing.T) {
+	adapter, _ := New("http://localhost", "app-id", "secret")
+
+	tests := []struct {
+		name    string
+		req     VerifyCodeRequest
+		field   string
+		wantErr string
+	}{
+		{
+			name:    "empty email and phone",
+			req:     VerifyCodeRequest{VerificationCode: "123456"},
+			field:   "email/phone",
+			wantErr: "either email or phone must be provided",
+		},
+		{
+			name:    "empty verification code",
+			req:     VerifyCodeRequest{Email: "test@example.com"},
+			field:   "verificationCode",
+			wantErr: "cannot be empty",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := adapter.VerifyCode(context.Background(), tt.req)
+			if err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			if !errors.Is(err, ErrInvalidInput) {
+				t.Errorf("expected ErrInvalidInput, got %v", err)
+			}
+			var valErr *ValidationError
+			if errors.As(err, &valErr) {
+				if valErr.Field != tt.field {
+					t.Errorf("expected field %q, got %q", tt.field, valErr.Field)
+				}
+			}
+		})
 	}
 }

@@ -62,8 +62,8 @@ type Application struct {
 
 // ApplicationCreate represents fields for creating an application.
 type ApplicationCreate struct {
-	Name         string
-	Type         ApplicationType
-	Description  string
-	RedirectURIs []string
+	Name         string          `json:"name"`
+	Type         ApplicationType `json:"type"`
+	Description  string          `json:"description,omitempty"`
+	RedirectURIs []string        `json:"redirectUris,omitempty"`
 }
