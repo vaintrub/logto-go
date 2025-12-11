@@ -84,15 +84,21 @@ func (a *Adapter) Ping(ctx context.Context) error {
 	return nil
 }
 
-// AuthenticateM2M obtains a machine-to-machine access token
-func (a *Adapter) AuthenticateM2M(ctx context.Context) (string, int, error) {
+// AuthenticateM2M obtains a machine-to-machine access token for the Management API.
+// The token is cached internally and refreshed automatically when expired.
+func (a *Adapter) AuthenticateM2M(ctx context.Context) (*TokenResult, error) {
 	// Fast path: check cached token with read lock
 	a.tokenMu.RLock()
 	if a.cachedToken != nil && time.Now().Add(tokenExpiryBuffer).Before(a.cachedToken.expiresAt) {
-		token := a.cachedToken.accessToken
-		expiresIn := int(time.Until(a.cachedToken.expiresAt).Seconds())
+		result := &TokenResult{
+			AccessToken: a.cachedToken.accessToken,
+			TokenType:   "Bearer",
+			ExpiresIn:   int(time.Until(a.cachedToken.expiresAt).Seconds()),
+			ExpiresAt:   a.cachedToken.expiresAt,
+			Scope:       a.opts.scope,
+		}
 		a.tokenMu.RUnlock()
-		return token, expiresIn, nil
+		return result, nil
 	}
 	a.tokenMu.RUnlock()
 
@@ -102,7 +108,13 @@ func (a *Adapter) AuthenticateM2M(ctx context.Context) (string, int, error) {
 
 	// Double-check after acquiring write lock
 	if a.cachedToken != nil && time.Now().Add(tokenExpiryBuffer).Before(a.cachedToken.expiresAt) {
-		return a.cachedToken.accessToken, int(time.Until(a.cachedToken.expiresAt).Seconds()), nil
+		return &TokenResult{
+			AccessToken: a.cachedToken.accessToken,
+			TokenType:   "Bearer",
+			ExpiresIn:   int(time.Until(a.cachedToken.expiresAt).Seconds()),
+			ExpiresAt:   a.cachedToken.expiresAt,
+			Scope:       a.opts.scope,
+		}, nil
 	}
 
 	// Request new token
@@ -115,7 +127,7 @@ func (a *Adapter) AuthenticateM2M(ctx context.Context) (string, int, error) {
 
 	req, err := http.NewRequestWithContext(ctx, "POST", tokenURL, strings.NewReader(data.Encode()))
 	if err != nil {
-		return "", 0, err
+		return nil, err
 	}
 
 	// Use Basic Auth with M2M credentials
@@ -125,34 +137,99 @@ func (a *Adapter) AuthenticateM2M(ctx context.Context) (string, int, error) {
 
 	resp, err := a.httpClient.Do(req)
 	if err != nil {
-		return "", 0, fmt.Errorf("M2M auth request failed: %w", err)
+		return nil, fmt.Errorf("M2M auth request failed: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", 0, fmt.Errorf("failed to read M2M auth response body: %w", err)
+		return nil, fmt.Errorf("failed to read M2M auth response body: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return "", 0, fmt.Errorf("M2M auth failed with status %d: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("M2M auth failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
-	var tokenResp struct {
-		AccessToken string `json:"access_token"`
-		ExpiresIn   int    `json:"expires_in"`
+	var result TokenResult
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("unmarshal token response: %w", err)
 	}
 
-	if err := json.Unmarshal(body, &tokenResp); err != nil {
-		return "", 0, fmt.Errorf("unmarshal token response: %w", err)
-	}
+	// Compute ExpiresAt
+	result.ExpiresAt = time.Now().Add(time.Duration(result.ExpiresIn) * time.Second)
 
 	// Cache token (already holding write lock from defer above)
 	a.cachedToken = &m2mTokenCache{
-		accessToken: tokenResp.AccessToken,
-		expiresAt:   time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second),
+		accessToken: result.AccessToken,
+		expiresAt:   result.ExpiresAt,
 	}
 
-	return tokenResp.AccessToken, tokenResp.ExpiresIn, nil
+	return &result, nil
+}
+
+// GetOrganizationToken obtains an M2M token scoped to a specific organization.
+//
+// This method is used when your M2M application needs to access resources
+// on behalf of a specific organization. The M2M app must be added to the
+// organization first using AddOrganizationApplications.
+//
+// IMPORTANT: This method does NOT cache tokens internally.
+// Caching is the responsibility of the calling code.
+// Use TokenResult.ExpiresAt for cache TTL calculations.
+//
+// Example usage with caching:
+//
+//	result, err := client.GetOrganizationToken(ctx, orgID)
+//	if err != nil {
+//	    return err
+//	}
+//	// Cache result.AccessToken with TTL based on result.ExpiresAt
+//	cache.Set(orgID, result.AccessToken, time.Until(result.ExpiresAt))
+func (a *Adapter) GetOrganizationToken(ctx context.Context, orgID string) (*TokenResult, error) {
+	if orgID == "" {
+		return nil, &ValidationError{Field: "orgID", Message: "cannot be empty"}
+	}
+
+	tokenURL := fmt.Sprintf("%s/oidc/token", a.endpoint)
+
+	data := url.Values{}
+	data.Set("grant_type", "client_credentials")
+	data.Set("resource", a.opts.resource)
+	data.Set("scope", a.opts.scope)
+	data.Set("organization_id", orgID)
+
+	req, err := http.NewRequestWithContext(ctx, "POST", tokenURL, strings.NewReader(data.Encode()))
+	if err != nil {
+		return nil, err
+	}
+
+	// Use Basic Auth with M2M credentials
+	credentials := base64.StdEncoding.EncodeToString([]byte(a.m2mAppID + ":" + a.m2mAppSecret))
+	req.Header.Set("Authorization", "Basic "+credentials)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := a.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("organization token request failed: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read organization token response body: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("organization token request failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var result TokenResult
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("unmarshal organization token response: %w", err)
+	}
+
+	// Compute ExpiresAt for convenient cache TTL calculation
+	result.ExpiresAt = time.Now().Add(time.Duration(result.ExpiresIn) * time.Second)
+
+	return &result, nil
 }
 
 // ListOrganizationApplications lists all applications in an organization

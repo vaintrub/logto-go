@@ -548,16 +548,16 @@ func TestAuthenticateM2M_Success(t *testing.T) {
 	defer server.Close()
 
 	adapter := newTestAdapter(t, server.URL)
-	token, expiresIn, err := adapter.AuthenticateM2M(context.Background())
+	result, err := adapter.AuthenticateM2M(context.Background())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if token != "test-access-token" {
-		t.Errorf("expected token 'test-access-token', got %q", token)
+	if result.AccessToken != "test-access-token" {
+		t.Errorf("expected token 'test-access-token', got %q", result.AccessToken)
 	}
-	if expiresIn != 3600 {
-		t.Errorf("expected expiresIn 3600, got %d", expiresIn)
+	if result.ExpiresIn != 3600 {
+		t.Errorf("expected expiresIn 3600, got %d", result.ExpiresIn)
 	}
 }
 
@@ -581,13 +581,13 @@ func TestAuthenticateM2M_CachesToken(t *testing.T) {
 	adapter := newTestAdapter(t, server.URL)
 
 	// First call
-	_, _, err := adapter.AuthenticateM2M(context.Background())
+	_, err := adapter.AuthenticateM2M(context.Background())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	// Second call should use cache
-	_, _, err = adapter.AuthenticateM2M(context.Background())
+	_, err = adapter.AuthenticateM2M(context.Background())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -624,7 +624,7 @@ func TestAuthenticateM2M_ConcurrentAccess(t *testing.T) {
 
 	for i := 0; i < numGoroutines; i++ {
 		go func() {
-			_, _, err := adapter.AuthenticateM2M(context.Background())
+			_, err := adapter.AuthenticateM2M(context.Background())
 			done <- err
 		}()
 	}

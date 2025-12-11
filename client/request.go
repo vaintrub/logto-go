@@ -24,10 +24,11 @@ type requestConfig struct {
 // Returns response body, status code, and error.
 func (a *Adapter) doRequest(ctx context.Context, cfg requestConfig) ([]byte, int, error) {
 	// 1. Authenticate
-	token, _, err := a.AuthenticateM2M(ctx)
+	tokenResult, err := a.AuthenticateM2M(ctx)
 	if err != nil {
 		return nil, 0, fmt.Errorf("authentication failed: %w", err)
 	}
+	token := tokenResult.AccessToken
 
 	// 2. Build URL with escaped path parameters
 	apiURL := a.buildURL(cfg.path, cfg.pathParams, cfg.query)

@@ -3,6 +3,7 @@ package client
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/vaintrub/logto-go/models"
@@ -14,7 +15,13 @@ type Client interface {
 	Ping(ctx context.Context) error
 
 	// M2M Auth
-	AuthenticateM2M(ctx context.Context) (accessToken string, expiresIn int, err error)
+	// AuthenticateM2M obtains an M2M access token for the Management API.
+	// The token is cached internally and refreshed automatically when expired.
+	AuthenticateM2M(ctx context.Context) (*TokenResult, error)
+	// GetOrganizationToken obtains an M2M token scoped to a specific organization.
+	// IMPORTANT: This method does NOT cache tokens. Caching is the caller's responsibility.
+	// Use TokenResult.ExpiresAt for cache TTL calculations.
+	GetOrganizationToken(ctx context.Context, orgID string) (*TokenResult, error)
 
 	// Users (GET /users, GET /users/{userId}, POST /users, PATCH /users/{userId}, DELETE /users/{userId})
 	GetUser(ctx context.Context, userID string) (*models.User, error)
@@ -141,4 +148,42 @@ type Client interface {
 type m2mTokenCache struct {
 	accessToken string
 	expiresAt   time.Time
+}
+
+// TokenResult represents an OAuth 2.0 token response.
+// Used for both regular M2M tokens and organization-scoped tokens.
+//
+// For GetOrganizationToken: caching is the caller's responsibility.
+// Use ExpiresAt for cache TTL calculation.
+type TokenResult struct {
+	// AccessToken is the JWT token to use in Authorization header
+	AccessToken string `json:"access_token"`
+	// TokenType is typically "Bearer"
+	TokenType string `json:"token_type"`
+	// ExpiresIn is the token lifetime in seconds (from Logto response)
+	ExpiresIn int `json:"expires_in"`
+	// ExpiresAt is the computed expiration time (time.Now() + ExpiresIn)
+	// Use this for cache TTL calculations
+	ExpiresAt time.Time `json:"-"`
+	// Scope contains the granted scopes as space-separated string (per RFC 6749)
+	Scope string `json:"scope"`
+}
+
+// GetScopes returns the scopes as a string slice.
+// Splits the space-separated scope string per OAuth 2.0 RFC 6749.
+func (t *TokenResult) GetScopes() []string {
+	if t.Scope == "" {
+		return []string{}
+	}
+	return strings.Fields(t.Scope)
+}
+
+// HasScope checks if the token has the specified scope.
+func (t *TokenResult) HasScope(scope string) bool {
+	for _, s := range t.GetScopes() {
+		if s == scope {
+			return true
+		}
+	}
+	return false
 }
