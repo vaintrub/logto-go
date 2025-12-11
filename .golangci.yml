@@ -8,7 +8,6 @@ linters:
     - errcheck
     - staticcheck
     - govet
-
-issues:
-  exclude-dirs:
-    - tests
+  exclusions:
+    paths:
+      - tests
