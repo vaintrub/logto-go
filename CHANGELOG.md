@@ -6,11 +6,9 @@
 ### ⚠ BREAKING CHANGES
 
 * removed resresh token in validator constructor
-* removed resresh token in validator constructor
 
 ### Features
 
-* removed resresh token in validator constructor ([4d1d5c8](https://github.com/vaintrub/logto-go/commit/4d1d5c80388d5e6a3292724aebd0c5bbc344a10a))
 * removed resresh token in validator constructor ([8739d10](https://github.com/vaintrub/logto-go/commit/8739d10c80d6f799e6ec796ad3d49e8b1fea08da))
 
 
@@ -25,7 +23,6 @@
 
 * added auth for orgs ([5b61b5b](https://github.com/vaintrub/logto-go/commit/5b61b5b940d5401eef533cd70206b4e153789287))
 * added global roles support ([e17caea](https://github.com/vaintrub/logto-go/commit/e17caea014ee8aabc141c880efe617b2b1ba52a6))
-* added global roles support ([76cb068](https://github.com/vaintrub/logto-go/commit/76cb068bb13a8255dbf1362c8f900a45352d5bc1))
 
 
 ### Miscellaneous Chores
