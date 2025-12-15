@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.0.5](https://github.com/vaintrub/logto-go/compare/v1.0.4...v1.0.5) (2025-12-15)
+
+
+### ⚠ BREAKING CHANGES
+
+* removed resresh token in validator constructor
+* removed resresh token in validator constructor
+
+### Features
+
+* removed resresh token in validator constructor ([4d1d5c8](https://github.com/vaintrub/logto-go/commit/4d1d5c80388d5e6a3292724aebd0c5bbc344a10a))
+* removed resresh token in validator constructor ([8739d10](https://github.com/vaintrub/logto-go/commit/8739d10c80d6f799e6ec796ad3d49e8b1fea08da))
+
+
+### Miscellaneous Chores
+
+* release 1.0.5 ([ee3d775](https://github.com/vaintrub/logto-go/commit/ee3d775b0a462487ce21edda85d870ad5d8665f9))
+
 ## [1.0.4](https://github.com/vaintrub/logto-go/compare/v1.0.3...v1.0.4) (2025-12-11)
 
 
