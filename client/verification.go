@@ -38,7 +38,7 @@ func (a *Adapter) RequestVerificationCode(ctx context.Context, req VerificationC
 		method:      http.MethodPost,
 		path:        "/api/verification-codes",
 		body:        req,
-		expectCodes: []int{http.StatusNoContent, http.StatusOK},
+		expectCodes: []int{http.StatusOK, http.StatusNoContent},
 	})
 	return err
 }
@@ -58,7 +58,7 @@ func (a *Adapter) VerifyCode(ctx context.Context, req VerifyCodeRequest) error {
 		method:      http.MethodPost,
 		path:        "/api/verification-codes/verify",
 		body:        req,
-		expectCodes: []int{http.StatusNoContent, http.StatusOK},
+		expectCodes: []int{http.StatusOK, http.StatusNoContent},
 	})
 	return err
 }

@@ -63,11 +63,6 @@ func NewJWKSValidator(jwksURL, issuer, audience string, cacheTTL time.Duration, 
 		cacheTTL:   cacheTTL,
 	}
 
-	// Initial fetch
-	if err := v.refreshKeys(context.Background()); err != nil {
-		return nil, fmt.Errorf("initial JWKS fetch failed: %w", err)
-	}
-
 	return v, nil
 }
 
@@ -75,19 +70,23 @@ func NewJWKSValidator(jwksURL, issuer, audience string, cacheTTL time.Duration, 
 func (v *JWKSValidator) ValidateToken(ctx context.Context, tokenString string) (*TokenInfo, error) {
 	// Check if keys need refresh (fast path with read lock)
 	v.mu.RLock()
-	needsRefresh := time.Since(v.lastFetch) > v.cacheTTL
+	needsRefresh := v.keySet == nil || time.Since(v.lastFetch) > v.cacheTTL
 	v.mu.RUnlock()
 
 	if needsRefresh {
-		// Slow path: acquire write lock and double-check to prevent thundering herd
-		v.mu.Lock()
-		if time.Since(v.lastFetch) > v.cacheTTL {
-			if err := v.refreshKeys(ctx); err != nil {
-				// Continue with cached keys on refresh failure
-				v.logger.WarnContext(ctx, "JWKS refresh failed, using cached keys", slog.Any("error", err))
+		// refreshKeys handles its own locking for cache update
+		if err := v.refreshKeys(ctx); err != nil {
+			// Check if we have cached keys to fall back to
+			v.mu.RLock()
+			hasKeys := v.keySet != nil
+			v.mu.RUnlock()
+
+			if !hasKeys {
+				return nil, fmt.Errorf("JWKS fetch failed: %w", err)
 			}
+			// Continue with cached keys on refresh failure
+			v.logger.WarnContext(ctx, "JWKS refresh failed, using cached keys", slog.Any("error", err))
 		}
-		v.mu.Unlock()
 	}
 
 	// Parse the signed JWT

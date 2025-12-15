@@ -111,7 +111,7 @@ func (a *Adapter) CreateUser(ctx context.Context, user models.UserCreate) (*mode
 		method:      http.MethodPost,
 		path:        "/api/users",
 		body:        user,
-		expectCodes: []int{http.StatusCreated, http.StatusOK},
+		expectCodes: []int{http.StatusOK, http.StatusCreated},
 	})
 	if err != nil {
 		return nil, err
@@ -175,7 +175,7 @@ func (a *Adapter) DeleteUser(ctx context.Context, userID string) error {
 		method:      http.MethodDelete,
 		path:        "/api/users/%s",
 		pathParams:  []string{userID},
-		expectCodes: []int{http.StatusNoContent},
+		expectCodes: []int{http.StatusOK, http.StatusNoContent},
 	})
 	return err
 }
@@ -271,7 +271,7 @@ func (a *Adapter) SuspendUser(ctx context.Context, userID string, suspended bool
 }
 
 // listUsersPaginated returns users with pagination support
-func (a *Adapter) listUsersPaginated(ctx context.Context, page, pageSize int) ([]*models.User, error) {
+func (a *Adapter) listUsersPaginated(ctx context.Context, page, pageSize int) ([]models.User, error) {
 	body, _, err := a.doRequest(ctx, requestConfig{
 		method: http.MethodGet,
 		path:   "/api/users",
@@ -289,14 +289,14 @@ func (a *Adapter) listUsersPaginated(ctx context.Context, page, pageSize int) ([
 		return nil, fmt.Errorf("unmarshal paginated users response: %w", err)
 	}
 
-	users := make([]*models.User, 0, len(usersData))
+	users := make([]models.User, 0, len(usersData))
 	for _, userData := range usersData {
 		user, err := parseUserResponse(userData)
 		if err != nil {
 			// Skip invalid items in pagination - errors are less critical here
 			continue
 		}
-		users = append(users, user)
+		users = append(users, *user)
 	}
 
 	return users, nil

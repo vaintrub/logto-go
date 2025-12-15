@@ -143,7 +143,7 @@ func (a *Adapter) CreateOrganizationRole(ctx context.Context, role models.Organi
 		method:      http.MethodPost,
 		path:        "/api/organization-roles",
 		body:        role,
-		expectCodes: []int{http.StatusCreated, http.StatusOK},
+		expectCodes: []int{http.StatusOK, http.StatusCreated},
 	})
 	if err != nil {
 		return nil, err
@@ -182,7 +182,7 @@ func (a *Adapter) DeleteOrganizationRole(ctx context.Context, roleID string) err
 		method:      http.MethodDelete,
 		path:        "/api/organization-roles/%s",
 		pathParams:  []string{roleID},
-		expectCodes: []int{http.StatusNoContent, http.StatusOK},
+		expectCodes: []int{http.StatusOK, http.StatusNoContent},
 	})
 }
 
@@ -212,7 +212,7 @@ func (a *Adapter) AddOrganizationRoleScopes(ctx context.Context, roleID string, 
 		path:        "/api/organization-roles/%s/scopes",
 		pathParams:  []string{roleID},
 		body:        map[string][]string{"organizationScopeIds": scopeIDs},
-		expectCodes: []int{http.StatusCreated, http.StatusOK, http.StatusNoContent},
+		expectCodes: []int{http.StatusOK, http.StatusCreated, http.StatusNoContent},
 	})
 }
 
@@ -229,7 +229,7 @@ func (a *Adapter) RemoveOrganizationRoleScope(ctx context.Context, roleID, scope
 		method:      http.MethodDelete,
 		path:        "/api/organization-roles/%s/scopes/%s",
 		pathParams:  []string{roleID, scopeID},
-		expectCodes: []int{http.StatusNoContent, http.StatusOK},
+		expectCodes: []int{http.StatusOK, http.StatusNoContent},
 	})
 }
 
@@ -244,7 +244,7 @@ func (a *Adapter) AssignResourceScopesToOrganizationRole(ctx context.Context, ro
 		path:        "/api/organization-roles/%s/resource-scopes",
 		pathParams:  []string{roleID},
 		body:        map[string][]string{"scopeIds": scopeIDs},
-		expectCodes: []int{http.StatusCreated, http.StatusOK, http.StatusNoContent},
+		expectCodes: []int{http.StatusOK, http.StatusCreated, http.StatusNoContent},
 	})
 }
 
@@ -303,7 +303,7 @@ func (a *Adapter) CreateOrganizationScope(ctx context.Context, scope models.Orga
 		method:      http.MethodPost,
 		path:        "/api/organization-scopes",
 		body:        scope,
-		expectCodes: []int{http.StatusCreated, http.StatusOK},
+		expectCodes: []int{http.StatusOK, http.StatusCreated},
 	})
 	if err != nil {
 		return nil, err
@@ -341,7 +341,7 @@ func (a *Adapter) DeleteOrganizationScope(ctx context.Context, scopeID string) e
 		method:      http.MethodDelete,
 		path:        "/api/organization-scopes/%s",
 		pathParams:  []string{scopeID},
-		expectCodes: []int{http.StatusNoContent, http.StatusOK},
+		expectCodes: []int{http.StatusOK, http.StatusNoContent},
 	})
 }
 
