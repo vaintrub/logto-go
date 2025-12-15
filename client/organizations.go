@@ -113,7 +113,7 @@ func (a *Adapter) CreateOrganization(ctx context.Context, org models.Organizatio
 		method:      http.MethodPost,
 		path:        "/api/organizations",
 		body:        org,
-		expectCodes: []int{http.StatusCreated, http.StatusOK},
+		expectCodes: []int{http.StatusOK, http.StatusCreated},
 	})
 	if err != nil {
 		return nil, err
@@ -152,12 +152,12 @@ func (a *Adapter) DeleteOrganization(ctx context.Context, orgID string) error {
 		method:      http.MethodDelete,
 		path:        "/api/organizations/%s",
 		pathParams:  []string{orgID},
-		expectCodes: []int{http.StatusNoContent, http.StatusOK},
+		expectCodes: []int{http.StatusOK, http.StatusNoContent},
 	})
 }
 
 // listOrganizationsPaginated returns organizations with pagination support
-func (a *Adapter) listOrganizationsPaginated(ctx context.Context, page, pageSize int) ([]*models.Organization, error) {
+func (a *Adapter) listOrganizationsPaginated(ctx context.Context, page, pageSize int) ([]models.Organization, error) {
 	body, _, err := a.doRequest(ctx, requestConfig{
 		method: http.MethodGet,
 		path:   "/api/organizations",
@@ -175,14 +175,14 @@ func (a *Adapter) listOrganizationsPaginated(ctx context.Context, page, pageSize
 		return nil, fmt.Errorf("unmarshal paginated organizations response: %w", err)
 	}
 
-	orgs := make([]*models.Organization, 0, len(orgsData))
+	orgs := make([]models.Organization, 0, len(orgsData))
 	for _, orgData := range orgsData {
 		org, err := parseOrganizationResponse(orgData)
 		if err != nil {
 			// Skip invalid items in pagination
 			continue
 		}
-		orgs = append(orgs, org)
+		orgs = append(orgs, *org)
 	}
 
 	return orgs, nil

@@ -422,16 +422,21 @@ func TestNewJWKSValidator_ValidEndpoint(t *testing.T) {
 	if validator == nil {
 		t.Fatal("expected validator, got nil")
 	}
-	if validator.keySet == nil {
-		t.Error("expected keySet to be populated")
+	// With lazy loading, keySet is nil until first ValidateToken call
+	if validator.keySet != nil {
+		t.Error("expected keySet to be nil before first ValidateToken (lazy loading)")
 	}
 }
 
 func TestNewJWKSValidator_InvalidEndpoint(t *testing.T) {
-	// Use an invalid URL that will fail to connect
-	_, err := NewJWKSValidator("http://localhost:1", "https://test.issuer.com", "", 5*time.Minute, nil)
-	if err == nil {
-		t.Error("expected error for invalid endpoint, got nil")
+	// With lazy loading, constructor should succeed even with invalid URL
+	// Error will occur on first ValidateToken call
+	validator, err := NewJWKSValidator("http://localhost:1", "https://test.issuer.com", "", 5*time.Minute, nil)
+	if err != nil {
+		t.Errorf("NewJWKSValidator should not fail with lazy loading: %v", err)
+	}
+	if validator == nil {
+		t.Error("expected validator, got nil")
 	}
 }
 
@@ -442,9 +447,13 @@ func TestNewJWKSValidator_InvalidJWKSResponse(t *testing.T) {
 	}))
 	defer server.Close()
 
-	_, err := NewJWKSValidator(server.URL, "https://test.issuer.com", "", 5*time.Minute, nil)
-	if err == nil {
-		t.Error("expected error for invalid JWKS response, got nil")
+	// With lazy loading, constructor should succeed
+	validator, err := NewJWKSValidator(server.URL, "https://test.issuer.com", "", 5*time.Minute, nil)
+	if err != nil {
+		t.Errorf("NewJWKSValidator should not fail with lazy loading: %v", err)
+	}
+	if validator == nil {
+		t.Error("expected validator, got nil")
 	}
 }
 
@@ -454,9 +463,13 @@ func TestNewJWKSValidator_NonOKStatus(t *testing.T) {
 	}))
 	defer server.Close()
 
-	_, err := NewJWKSValidator(server.URL, "https://test.issuer.com", "", 5*time.Minute, nil)
-	if err == nil {
-		t.Error("expected error for non-OK status, got nil")
+	// With lazy loading, constructor should succeed
+	validator, err := NewJWKSValidator(server.URL, "https://test.issuer.com", "", 5*time.Minute, nil)
+	if err != nil {
+		t.Errorf("NewJWKSValidator should not fail with lazy loading: %v", err)
+	}
+	if validator == nil {
+		t.Error("expected validator, got nil")
 	}
 }
 

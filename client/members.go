@@ -64,7 +64,7 @@ func (a *Adapter) AddUserToOrganization(ctx context.Context, orgID, userID strin
 		path:        "/api/organizations/%s/users",
 		pathParams:  []string{orgID},
 		body:        map[string][]string{"userIds": {userID}},
-		expectCodes: []int{http.StatusCreated, http.StatusOK, http.StatusNoContent},
+		expectCodes: []int{http.StatusOK, http.StatusCreated, http.StatusNoContent},
 	})
 	if err != nil {
 		return err
@@ -94,7 +94,7 @@ func (a *Adapter) AddUsersToOrganization(ctx context.Context, orgID string, user
 		path:        "/api/organizations/%s/users",
 		pathParams:  []string{orgID},
 		body:        map[string][]string{"userIds": userIDs},
-		expectCodes: []int{http.StatusCreated, http.StatusOK, http.StatusNoContent},
+		expectCodes: []int{http.StatusOK, http.StatusCreated, http.StatusNoContent},
 	})
 }
 
@@ -111,7 +111,7 @@ func (a *Adapter) RemoveUserFromOrganization(ctx context.Context, orgID, userID 
 		method:      http.MethodDelete,
 		path:        "/api/organizations/%s/users/%s",
 		pathParams:  []string{orgID, userID},
-		expectCodes: []int{http.StatusNoContent, http.StatusOK},
+		expectCodes: []int{http.StatusOK, http.StatusNoContent},
 	})
 }
 
@@ -153,7 +153,7 @@ func (a *Adapter) AssignRolesToOrganizationUsers(ctx context.Context, orgID stri
 			"userIds":             userIDs,
 			"organizationRoleIds": roleIDs,
 		},
-		expectCodes: []int{http.StatusCreated, http.StatusOK, http.StatusNoContent},
+		expectCodes: []int{http.StatusOK, http.StatusCreated, http.StatusNoContent},
 	})
 }
 

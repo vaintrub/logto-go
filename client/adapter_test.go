@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -166,6 +167,8 @@ func TestAPIError_Is(t *testing.T) {
 		{401, ErrUnauthorized, true},
 		{403, ErrForbidden, true},
 		{404, ErrNotFound, true},
+		{409, ErrConflict, true},
+		{422, ErrUnprocessableEntity, true},
 		{429, ErrRateLimited, true},
 		{500, ErrServerError, true},
 		{502, ErrServerError, true},
@@ -174,10 +177,13 @@ func TestAPIError_Is(t *testing.T) {
 		{200, ErrNotFound, false},
 		{400, ErrNotFound, false},
 		{404, ErrBadRequest, false},
+		{409, ErrNotFound, false},
+		{422, ErrBadRequest, false},
 	}
 
 	for _, tt := range tests {
-		t.Run("", func(t *testing.T) {
+		name := fmt.Sprintf("%d→%v=%v", tt.statusCode, tt.target, tt.expected)
+		t.Run(name, func(t *testing.T) {
 			err := &APIError{StatusCode: tt.statusCode, Message: "test"}
 			if got := errors.Is(err, tt.target); got != tt.expected {
 				t.Errorf("APIError{StatusCode: %d}.Is(%v) = %v, want %v",

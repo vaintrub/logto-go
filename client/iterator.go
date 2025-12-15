@@ -12,7 +12,7 @@ type UserIterator struct {
 	ctx      context.Context
 	pageSize int
 	page     int
-	users    []*models.User
+	users    []models.User
 	index    int
 	err      error
 	done     bool
@@ -51,7 +51,7 @@ func (it *UserIterator) User() *models.User {
 	if it.index < 0 || it.index >= len(it.users) {
 		return nil
 	}
-	return it.users[it.index]
+	return &it.users[it.index]
 }
 
 // Err returns any error that occurred during iteration.
@@ -60,10 +60,10 @@ func (it *UserIterator) Err() error {
 }
 
 // Collect fetches all remaining users and returns them as a slice.
-func (it *UserIterator) Collect() ([]*models.User, error) {
-	var all []*models.User
+func (it *UserIterator) Collect() ([]models.User, error) {
+	var all []models.User
 	for it.Next() {
-		all = append(all, it.User())
+		all = append(all, *it.User())
 	}
 	return all, it.Err()
 }
@@ -74,7 +74,7 @@ type OrganizationIterator struct {
 	ctx           context.Context
 	pageSize      int
 	page          int
-	organizations []*models.Organization
+	organizations []models.Organization
 	index         int
 	err           error
 	done          bool
@@ -113,7 +113,7 @@ func (it *OrganizationIterator) Organization() *models.Organization {
 	if it.index < 0 || it.index >= len(it.organizations) {
 		return nil
 	}
-	return it.organizations[it.index]
+	return &it.organizations[it.index]
 }
 
 // Err returns any error that occurred during iteration.
@@ -122,10 +122,10 @@ func (it *OrganizationIterator) Err() error {
 }
 
 // Collect fetches all remaining organizations and returns them as a slice.
-func (it *OrganizationIterator) Collect() ([]*models.Organization, error) {
-	var all []*models.Organization
+func (it *OrganizationIterator) Collect() ([]models.Organization, error) {
+	var all []models.Organization
 	for it.Next() {
-		all = append(all, it.Organization())
+		all = append(all, *it.Organization())
 	}
 	return all, it.Err()
 }

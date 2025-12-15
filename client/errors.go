@@ -20,6 +20,12 @@ var (
 	// ErrBadRequest indicates invalid request parameters (HTTP 400).
 	ErrBadRequest = errors.New("bad request")
 
+	// ErrConflict indicates a resource conflict, e.g., duplicate entry (HTTP 409).
+	ErrConflict = errors.New("resource conflict")
+
+	// ErrUnprocessableEntity indicates semantic validation failure (HTTP 422).
+	ErrUnprocessableEntity = errors.New("unprocessable entity")
+
 	// ErrRateLimited indicates too many requests (HTTP 429).
 	ErrRateLimited = errors.New("rate limited")
 
@@ -58,6 +64,10 @@ func (e *APIError) Is(target error) bool {
 		return target == ErrForbidden
 	case 404:
 		return target == ErrNotFound
+	case 409:
+		return target == ErrConflict
+	case 422:
+		return target == ErrUnprocessableEntity
 	case 429:
 		return target == ErrRateLimited
 	}

@@ -78,7 +78,9 @@ func (a *Adapter) Ping(ctx context.Context) error {
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		return fmt.Errorf("IDP returned unhealthy status: %d", resp.StatusCode)
+		body, _ := io.ReadAll(resp.Body)
+		requestID := resp.Header.Get("X-Request-Id")
+		return newAPIErrorFromResponse(resp.StatusCode, body, requestID)
 	}
 
 	return nil
@@ -146,7 +148,8 @@ func (a *Adapter) AuthenticateM2M(ctx context.Context) (*TokenResult, error) {
 		return nil, fmt.Errorf("failed to read M2M auth response body: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("M2M auth failed with status %d: %s", resp.StatusCode, string(body))
+		requestID := resp.Header.Get("X-Request-Id")
+		return nil, newAPIErrorFromResponse(resp.StatusCode, body, requestID)
 	}
 
 	var result TokenResult
@@ -218,7 +221,8 @@ func (a *Adapter) GetOrganizationToken(ctx context.Context, orgID string) (*Toke
 		return nil, fmt.Errorf("failed to read organization token response body: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("organization token request failed with status %d: %s", resp.StatusCode, string(body))
+		requestID := resp.Header.Get("X-Request-Id")
+		return nil, newAPIErrorFromResponse(resp.StatusCode, body, requestID)
 	}
 
 	var result TokenResult
@@ -441,7 +445,7 @@ func (a *Adapter) CreateApplication(ctx context.Context, app models.ApplicationC
 		method:      http.MethodPost,
 		path:        "/api/applications",
 		body:        payload,
-		expectCodes: []int{http.StatusCreated, http.StatusOK},
+		expectCodes: []int{http.StatusOK, http.StatusCreated},
 	})
 	if err != nil {
 		return nil, err
@@ -800,7 +804,7 @@ func (a *Adapter) CreateOrganizationInvitation(ctx context.Context, invitation m
 		method:      http.MethodPost,
 		path:        "/api/organization-invitations",
 		body:        payload,
-		expectCodes: []int{http.StatusCreated, http.StatusOK},
+		expectCodes: []int{http.StatusOK, http.StatusCreated},
 	})
 	if err != nil {
 		return nil, err
@@ -876,7 +880,7 @@ func (a *Adapter) DeleteOrganizationInvitation(ctx context.Context, invitationID
 		method:      http.MethodDelete,
 		path:        "/api/organization-invitations/%s",
 		pathParams:  []string{invitationID},
-		expectCodes: []int{http.StatusNoContent, http.StatusOK},
+		expectCodes: []int{http.StatusOK, http.StatusNoContent},
 	})
 }
 
@@ -893,7 +897,7 @@ func (a *Adapter) SendInvitationMessage(ctx context.Context, invitationID, magic
 		body: map[string]interface{}{
 			"link": magicLink,
 		},
-		expectCodes: []int{http.StatusNoContent, http.StatusOK},
+		expectCodes: []int{http.StatusOK, http.StatusNoContent},
 	})
 }
 
@@ -925,7 +929,7 @@ func (a *Adapter) CreateOneTimeToken(ctx context.Context, token models.OneTimeTo
 		method:      http.MethodPost,
 		path:        "/api/one-time-tokens",
 		body:        payload,
-		expectCodes: []int{http.StatusCreated, http.StatusOK},
+		expectCodes: []int{http.StatusOK, http.StatusCreated},
 	}, &result)
 	if err != nil {
 		return nil, err

@@ -14,20 +14,33 @@ go get github.com/vaintrub/logto-go
 ## Quick Start
 
 ```go
-import logto "github.com/vaintrub/logto-go"
+import (
+    "context"
 
-client, err := logto.New(
+    "github.com/vaintrub/logto-go/client"
+    "github.com/vaintrub/logto-go/models"
+)
+
+c, err := client.New(
     "https://your-tenant.logto.app",
     "m2m-app-id",
     "m2m-app-secret",
-    logto.WithResource("https://your-tenant.logto.app/api"),
+    client.WithResource("https://your-tenant.logto.app/api"),
 )
 
+ctx := context.Background()
+
 // Get user
-user, err := client.GetUser(ctx, "user-id")
+user, err := c.GetUser(ctx, "user-id")
+
+// Create user
+newUser, err := c.CreateUser(ctx, models.UserCreate{
+    Username: "john",
+    Password: "SecurePass123!",
+})
 
 // List organizations
-orgs, err := client.ListOrganizations(ctx)
+orgs, err := c.ListOrganizations(ctx)
 ```
 
 ## Features
@@ -43,21 +56,48 @@ orgs, err := client.ListOrganizations(ctx)
 
 | Option | Description | Default |
 |--------|-------------|---------|
-| `WithTimeout(d)` | HTTP timeout | 5s |
-| `WithRetry(max, backoff)` | Retry config | 1, 500ms |
-| `WithHTTPClient(c)` | Custom HTTP client | - |
-| `WithLogger(l)` | slog.Logger | - |
-| `WithResource(url)` | M2M resource | - |
-| `WithScope(s)` | M2M scope | "all" |
+| `client.WithTimeout(d)` | HTTP client timeout | 5s |
+| `client.WithHTTPClient(c)` | Custom HTTP client (overrides timeout) | - |
+| `client.WithLogger(l)` | slog.Logger for debug output | - |
+| `client.WithResource(url)` | M2M resource URL | - |
+| `client.WithScope(s)` | M2M scope | "all" |
 
 ## Error Handling
 
 ```go
-if errors.Is(err, logto.ErrNotFound) {
+import "github.com/vaintrub/logto-go/client"
+
+if errors.Is(err, client.ErrNotFound) {
     // handle 404
 }
-if errors.Is(err, logto.ErrRateLimited) {
+if errors.Is(err, client.ErrRateLimited) {
     // handle 429
+}
+```
+
+## JWT Validation
+
+```go
+import (
+    "time"
+
+    "github.com/vaintrub/logto-go/validator"
+)
+
+v, err := validator.NewJWKSValidator(
+    "https://your-tenant.logto.app/oidc/jwks",
+    "https://your-tenant.logto.app/oidc",
+    "https://api.example.com", // audience
+    time.Hour,                 // JWKS cache TTL
+    nil,                       // optional logger
+)
+
+tokenInfo, err := v.ValidateToken(ctx, bearerToken)
+userID := tokenInfo.GetUserID()
+orgID := tokenInfo.GetOrganizationID()
+
+if tokenInfo.HasScope("read:users") {
+    // allowed
 }
 ```
 

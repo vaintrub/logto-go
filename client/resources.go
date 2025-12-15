@@ -76,7 +76,7 @@ func (a *Adapter) CreateAPIResource(ctx context.Context, resource models.APIReso
 		method:      http.MethodPost,
 		path:        "/api/resources",
 		body:        resource,
-		expectCodes: []int{http.StatusCreated, http.StatusOK},
+		expectCodes: []int{http.StatusOK, http.StatusCreated},
 	})
 	if err != nil {
 		return nil, err
@@ -114,7 +114,7 @@ func (a *Adapter) DeleteAPIResource(ctx context.Context, resourceID string) erro
 		method:      http.MethodDelete,
 		path:        "/api/resources/%s",
 		pathParams:  []string{resourceID},
-		expectCodes: []int{http.StatusNoContent, http.StatusOK},
+		expectCodes: []int{http.StatusOK, http.StatusNoContent},
 	})
 }
 
@@ -182,7 +182,7 @@ func (a *Adapter) CreateAPIResourceScope(ctx context.Context, resourceID string,
 		path:        "/api/resources/%s/scopes",
 		pathParams:  []string{resourceID},
 		body:        scope,
-		expectCodes: []int{http.StatusCreated, http.StatusOK},
+		expectCodes: []int{http.StatusOK, http.StatusCreated},
 	})
 	if err != nil {
 		return nil, err
@@ -226,7 +226,7 @@ func (a *Adapter) DeleteAPIResourceScope(ctx context.Context, resourceID, scopeI
 		method:      http.MethodDelete,
 		path:        "/api/resources/%s/scopes/%s",
 		pathParams:  []string{resourceID, scopeID},
-		expectCodes: []int{http.StatusNoContent, http.StatusOK},
+		expectCodes: []int{http.StatusOK, http.StatusNoContent},
 	})
 }
 
