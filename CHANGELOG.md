@@ -6,13 +6,11 @@
 ### Features
 
 * added validator errors ([1d23133](https://github.com/vaintrub/logto-go/commit/1d23133404be736748d8b7ce85f0dbac243bd464))
-* added validator errors ([d910e89](https://github.com/vaintrub/logto-go/commit/d910e89f026c35c0575cb5bea6bbe122ceba0e96))
 
 
 ### Bug Fixes
 
 * endpoint trailing slash ([1d23133](https://github.com/vaintrub/logto-go/commit/1d23133404be736748d8b7ce85f0dbac243bd464))
-* endpoint trailing slash ([0fe6d0e](https://github.com/vaintrub/logto-go/commit/0fe6d0e4d68398c3d8c1015093ba74d2d3389604))
 
 
 ### Miscellaneous Chores
