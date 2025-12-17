@@ -7,6 +7,7 @@ import (
 	_ "embed"
 	"fmt"
 	"net/http"
+	"strings"
 	"text/template"
 	"time"
 
@@ -217,6 +218,8 @@ func (env *Env) Teardown(ctx context.Context) {
 // waitForLogtoReady waits for Logto to be ready.
 func waitForLogtoReady(ctx context.Context, endpoint string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
+	// Normalize endpoint: remove trailing slash to prevent double slashes
+	endpoint = strings.TrimSuffix(endpoint, "/")
 	for time.Now().Before(deadline) {
 		resp, err := http.Get(endpoint + "/api/status")
 		if err == nil && (resp.StatusCode == 200 || resp.StatusCode == 204) {

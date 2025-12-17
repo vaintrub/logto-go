@@ -53,6 +53,9 @@ func New(endpoint, m2mAppID, m2mAppSecret string, opts ...Option) (*Adapter, err
 		httpClient = &http.Client{Timeout: o.timeout}
 	}
 
+	// Normalize endpoint: remove trailing slash to prevent double slashes in URL concatenation
+	endpoint = strings.TrimSuffix(endpoint, "/")
+
 	return &Adapter{
 		endpoint:     endpoint,
 		m2mAppID:     m2mAppID,
