@@ -50,6 +50,16 @@ type JWKSValidator struct {
 //   - cacheTTL: How long to cache JWKS keys before refreshing
 //   - logger: Optional slog.Logger for debug output (nil uses slog.Default())
 func NewJWKSValidator(jwksURL, issuer, audience string, cacheTTL time.Duration, logger *slog.Logger) (*JWKSValidator, error) {
+	if jwksURL == "" {
+		return nil, fmt.Errorf("%w: jwksURL is required", ErrInvalidConfig)
+	}
+	if issuer == "" {
+		return nil, fmt.Errorf("%w: issuer is required", ErrInvalidConfig)
+	}
+	if cacheTTL <= 0 {
+		return nil, fmt.Errorf("%w: cacheTTL must be positive", ErrInvalidConfig)
+	}
+
 	if logger == nil {
 		logger = slog.Default()
 	}
@@ -82,7 +92,7 @@ func (v *JWKSValidator) ValidateToken(ctx context.Context, tokenString string) (
 			v.mu.RUnlock()
 
 			if !hasKeys {
-				return nil, fmt.Errorf("JWKS fetch failed: %w", err)
+				return nil, fmt.Errorf("%w: %w", ErrJWKSFetchFailed, err)
 			}
 			// Continue with cached keys on refresh failure
 			v.logger.WarnContext(ctx, "JWKS refresh failed, using cached keys", slog.Any("error", err))
@@ -110,13 +120,13 @@ func (v *JWKSValidator) ValidateToken(ctx context.Context, tokenString string) (
 	v.mu.RUnlock()
 
 	if len(keys) == 0 {
-		return nil, fmt.Errorf("public key not found for kid: %s", kid)
+		return nil, fmt.Errorf("%w for kid: %s", ErrKeyNotFound, kid)
 	}
 
 	// Verify signature and get payload
 	payload, err := tok.Verify(keys[0])
 	if err != nil {
-		return nil, fmt.Errorf("signature verification failed: %w", err)
+		return nil, fmt.Errorf("%w: %w", ErrInvalidSignature, err)
 	}
 
 	// Parse claims from payload
@@ -133,7 +143,7 @@ func (v *JWKSValidator) ValidateToken(ctx context.Context, tokenString string) (
 
 	// Validate issuer
 	if claims.Issuer != v.issuer {
-		return nil, fmt.Errorf("invalid issuer: expected %s, got %s", v.issuer, claims.Issuer)
+		return nil, fmt.Errorf("%w: expected %s, got %s", ErrInvalidIssuer, v.issuer, claims.Issuer)
 	}
 
 	// Validate audience (critical security check)
@@ -141,18 +151,18 @@ func (v *JWKSValidator) ValidateToken(ctx context.Context, tokenString string) (
 	// See: https://auth-wiki.logto.io/access-token
 	if v.audience != "" {
 		if !claims.HasAudience(v.audience) {
-			return nil, fmt.Errorf("invalid audience: token not issued for %s", v.audience)
+			return nil, fmt.Errorf("%w: token not issued for %s", ErrInvalidAudience, v.audience)
 		}
 	}
 
 	// Validate not before (nbf)
 	if claims.NotBefore != nil && time.Now().Unix() < claims.NotBefore.Unix() {
-		return nil, fmt.Errorf("token not yet valid (nbf)")
+		return nil, ErrTokenNotYetValid
 	}
 
 	// Validate expiration
 	if claims.ExpiresAt != nil && time.Now().Unix() > claims.ExpiresAt.Unix() {
-		return nil, fmt.Errorf("token expired")
+		return nil, ErrTokenExpired
 	}
 
 	// Convert Claims to TokenInfo with all JWT fields

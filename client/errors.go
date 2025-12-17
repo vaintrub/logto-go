@@ -26,6 +26,9 @@ var (
 	// ErrUnprocessableEntity indicates semantic validation failure (HTTP 422).
 	ErrUnprocessableEntity = errors.New("unprocessable entity")
 
+	// ErrMembershipRequired indicates the user must be an organization member (HTTP 422, code: organization.require_membership).
+	ErrMembershipRequired = errors.New("organization membership required")
+
 	// ErrRateLimited indicates too many requests (HTTP 429).
 	ErrRateLimited = errors.New("rate limited")
 
@@ -67,6 +70,9 @@ func (e *APIError) Is(target error) bool {
 	case 409:
 		return target == ErrConflict
 	case 422:
+		if e.Code == "organization.require_membership" {
+			return target == ErrMembershipRequired || target == ErrUnprocessableEntity
+		}
 		return target == ErrUnprocessableEntity
 	case 429:
 		return target == ErrRateLimited
