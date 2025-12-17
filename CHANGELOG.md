@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.0.6](https://github.com/vaintrub/logto-go/compare/v1.0.5...v1.0.6) (2025-12-17)
+
+
+### Features
+
+* added validator errors ([1d23133](https://github.com/vaintrub/logto-go/commit/1d23133404be736748d8b7ce85f0dbac243bd464))
+
+
+### Bug Fixes
+
+* endpoint trailing slash ([1d23133](https://github.com/vaintrub/logto-go/commit/1d23133404be736748d8b7ce85f0dbac243bd464))
+
+
+### Miscellaneous Chores
+
+* release 1.0.6 ([4973f99](https://github.com/vaintrub/logto-go/commit/4973f998be4562eb75e7a6400aea8575b7049520))
+
 ## [1.0.5](https://github.com/vaintrub/logto-go/compare/v1.0.4...v1.0.5) (2025-12-15)
 
 
