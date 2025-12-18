@@ -55,6 +55,7 @@ type Client interface {
 	UpdateUserRoles(ctx context.Context, orgID, userID string, update models.UserOrganizationRolesUpdate) error
 	AssignRolesToOrganizationUsers(ctx context.Context, orgID string, userIDs, roleIDs []string) error // Batch assign roles
 	GetUserRolesInOrganization(ctx context.Context, orgID, userID string) ([]models.OrganizationRole, error)
+	GetUserScopesInOrganization(ctx context.Context, orgID, userID string) ([]models.OrganizationScope, error)
 
 	// Organization Applications (GET/POST/DELETE /organizations/{id}/applications/*)
 	ListOrganizationApplications(ctx context.Context, orgID string) ([]models.Application, error)

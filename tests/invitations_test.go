@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/vaintrub/logto-go/client"
 	"github.com/vaintrub/logto-go/models"
 )
 
@@ -29,7 +30,7 @@ func TestOrganizationInvitations(t *testing.T) {
 	})
 
 	inviteeEmail := fmt.Sprintf("invitee-%d@test.local", time.Now().UnixNano())
-	expiresAt := time.Now().Add(24 * time.Hour).UnixMilli()
+	expiresAt := models.UnixMilliTime{Time: time.Now().Add(24 * time.Hour)}
 
 	// Create invitation
 	createdInvitation, err := testClient.CreateOrganizationInvitation(ctx, models.OrganizationInvitationCreate{
@@ -81,7 +82,7 @@ func TestSendInvitationMessage(t *testing.T) {
 
 	// Create invitation
 	inviteeEmail := fmt.Sprintf("invite_msg_%d@test.local", time.Now().UnixNano())
-	expiresAt := time.Now().Add(24 * time.Hour).UnixMilli()
+	expiresAt := models.UnixMilliTime{Time: time.Now().Add(24 * time.Hour)}
 
 	createdInvitation, err := testClient.CreateOrganizationInvitation(ctx, models.OrganizationInvitationCreate{
 		OrganizationID: orgID,
@@ -104,4 +105,89 @@ func TestSendInvitationMessage(t *testing.T) {
 	if err != nil {
 		t.Logf("SendInvitationMessage returned expected error (no email connector): %v", err)
 	}
+}
+
+// === Validation Tests ===
+
+// TestCreateOrganizationInvitation_Validation tests validation errors
+func TestCreateOrganizationInvitation_Validation(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("empty organizationId", func(t *testing.T) {
+		_, err := testClient.CreateOrganizationInvitation(ctx, models.OrganizationInvitationCreate{
+			OrganizationID: "",
+			Invitee:        "test@test.local",
+			ExpiresAt:      models.UnixMilliTime{Time: time.Now().Add(24 * time.Hour)},
+		})
+		require.Error(t, err, "CreateOrganizationInvitation with empty organizationId should fail")
+		var validationErr *client.ValidationError
+		require.ErrorAs(t, err, &validationErr)
+		assert.Equal(t, "organizationId", validationErr.Field)
+	})
+
+	t.Run("empty invitee", func(t *testing.T) {
+		_, err := testClient.CreateOrganizationInvitation(ctx, models.OrganizationInvitationCreate{
+			OrganizationID: "org-123",
+			Invitee:        "",
+			ExpiresAt:      models.UnixMilliTime{Time: time.Now().Add(24 * time.Hour)},
+		})
+		require.Error(t, err, "CreateOrganizationInvitation with empty invitee should fail")
+		var validationErr *client.ValidationError
+		require.ErrorAs(t, err, &validationErr)
+		assert.Equal(t, "invitee", validationErr.Field)
+	})
+}
+
+// TestListOrganizationInvitations_Validation tests validation errors
+func TestListOrganizationInvitations_Validation(t *testing.T) {
+	ctx := context.Background()
+
+	_, err := testClient.ListOrganizationInvitations(ctx, "")
+	require.Error(t, err, "ListOrganizationInvitations with empty orgID should fail")
+	var validationErr *client.ValidationError
+	require.ErrorAs(t, err, &validationErr)
+	assert.Equal(t, "orgID", validationErr.Field)
+}
+
+// TestGetOrganizationInvitation_Validation tests validation errors
+func TestGetOrganizationInvitation_Validation(t *testing.T) {
+	ctx := context.Background()
+
+	_, err := testClient.GetOrganizationInvitation(ctx, "")
+	require.Error(t, err, "GetOrganizationInvitation with empty invitationID should fail")
+	var validationErr *client.ValidationError
+	require.ErrorAs(t, err, &validationErr)
+	assert.Equal(t, "invitationID", validationErr.Field)
+}
+
+// TestDeleteOrganizationInvitation_Validation tests validation errors
+func TestDeleteOrganizationInvitation_Validation(t *testing.T) {
+	ctx := context.Background()
+
+	err := testClient.DeleteOrganizationInvitation(ctx, "")
+	require.Error(t, err, "DeleteOrganizationInvitation with empty invitationID should fail")
+	var validationErr *client.ValidationError
+	require.ErrorAs(t, err, &validationErr)
+	assert.Equal(t, "invitationID", validationErr.Field)
+}
+
+// TestSendInvitationMessage_Validation tests validation errors
+func TestSendInvitationMessage_Validation(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("empty invitationID", func(t *testing.T) {
+		err := testClient.SendInvitationMessage(ctx, "", "https://example.com/invite")
+		require.Error(t, err, "SendInvitationMessage with empty invitationID should fail")
+		var validationErr *client.ValidationError
+		require.ErrorAs(t, err, &validationErr)
+		assert.Equal(t, "invitationID", validationErr.Field)
+	})
+
+	t.Run("empty magicLink", func(t *testing.T) {
+		err := testClient.SendInvitationMessage(ctx, "invitation-123", "")
+		require.Error(t, err, "SendInvitationMessage with empty magicLink should fail")
+		var validationErr *client.ValidationError
+		require.ErrorAs(t, err, &validationErr)
+		assert.Equal(t, "magicLink", validationErr.Field)
+	})
 }

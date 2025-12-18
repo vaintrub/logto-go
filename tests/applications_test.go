@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/vaintrub/logto-go/client"
 	"github.com/vaintrub/logto-go/models"
 )
 
@@ -123,4 +124,165 @@ func TestOrganizationApplications(t *testing.T) {
 	apps, err = testClient.ListOrganizationApplications(ctx, orgID)
 	require.NoError(t, err)
 	assert.Len(t, apps, 0)
+}
+
+// === Validation Tests ===
+
+// TestListOrganizationApplications_Validation tests validation errors
+func TestListOrganizationApplications_Validation(t *testing.T) {
+	ctx := context.Background()
+
+	_, err := testClient.ListOrganizationApplications(ctx, "")
+	require.Error(t, err, "ListOrganizationApplications with empty orgID should fail")
+	var validationErr *client.ValidationError
+	require.ErrorAs(t, err, &validationErr)
+	assert.Equal(t, "orgID", validationErr.Field)
+}
+
+// TestAddOrganizationApplications_Validation tests validation errors
+func TestAddOrganizationApplications_Validation(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("empty orgID", func(t *testing.T) {
+		err := testClient.AddOrganizationApplications(ctx, "", []string{"app-1"})
+		require.Error(t, err, "AddOrganizationApplications with empty orgID should fail")
+		var validationErr *client.ValidationError
+		require.ErrorAs(t, err, &validationErr)
+		assert.Equal(t, "orgID", validationErr.Field)
+	})
+
+	t.Run("empty applicationIDs", func(t *testing.T) {
+		err := testClient.AddOrganizationApplications(ctx, "org-123", []string{})
+		require.Error(t, err, "AddOrganizationApplications with empty applicationIDs should fail")
+		var validationErr *client.ValidationError
+		require.ErrorAs(t, err, &validationErr)
+		assert.Equal(t, "applicationIDs", validationErr.Field)
+	})
+}
+
+// TestRemoveOrganizationApplication_Validation tests validation errors
+func TestRemoveOrganizationApplication_Validation(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("empty orgID", func(t *testing.T) {
+		err := testClient.RemoveOrganizationApplication(ctx, "", "app-123")
+		require.Error(t, err, "RemoveOrganizationApplication with empty orgID should fail")
+		var validationErr *client.ValidationError
+		require.ErrorAs(t, err, &validationErr)
+		assert.Equal(t, "orgID", validationErr.Field)
+	})
+
+	t.Run("empty applicationID", func(t *testing.T) {
+		err := testClient.RemoveOrganizationApplication(ctx, "org-123", "")
+		require.Error(t, err, "RemoveOrganizationApplication with empty applicationID should fail")
+		var validationErr *client.ValidationError
+		require.ErrorAs(t, err, &validationErr)
+		assert.Equal(t, "applicationID", validationErr.Field)
+	})
+}
+
+// TestGetOrganizationApplicationRoles_Validation tests validation errors
+func TestGetOrganizationApplicationRoles_Validation(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("empty orgID", func(t *testing.T) {
+		_, err := testClient.GetOrganizationApplicationRoles(ctx, "", "app-123")
+		require.Error(t, err, "GetOrganizationApplicationRoles with empty orgID should fail")
+		var validationErr *client.ValidationError
+		require.ErrorAs(t, err, &validationErr)
+		assert.Equal(t, "orgID", validationErr.Field)
+	})
+
+	t.Run("empty applicationID", func(t *testing.T) {
+		_, err := testClient.GetOrganizationApplicationRoles(ctx, "org-123", "")
+		require.Error(t, err, "GetOrganizationApplicationRoles with empty applicationID should fail")
+		var validationErr *client.ValidationError
+		require.ErrorAs(t, err, &validationErr)
+		assert.Equal(t, "applicationID", validationErr.Field)
+	})
+}
+
+// TestAssignOrganizationApplicationRoles_Validation tests validation errors
+func TestAssignOrganizationApplicationRoles_Validation(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("empty orgID", func(t *testing.T) {
+		err := testClient.AssignOrganizationApplicationRoles(ctx, "", "app-123", []string{"role-1"})
+		require.Error(t, err, "AssignOrganizationApplicationRoles with empty orgID should fail")
+		var validationErr *client.ValidationError
+		require.ErrorAs(t, err, &validationErr)
+		assert.Equal(t, "orgID", validationErr.Field)
+	})
+
+	t.Run("empty applicationID", func(t *testing.T) {
+		err := testClient.AssignOrganizationApplicationRoles(ctx, "org-123", "", []string{"role-1"})
+		require.Error(t, err, "AssignOrganizationApplicationRoles with empty applicationID should fail")
+		var validationErr *client.ValidationError
+		require.ErrorAs(t, err, &validationErr)
+		assert.Equal(t, "applicationID", validationErr.Field)
+	})
+
+	t.Run("empty roleIDs", func(t *testing.T) {
+		err := testClient.AssignOrganizationApplicationRoles(ctx, "org-123", "app-123", []string{})
+		require.Error(t, err, "AssignOrganizationApplicationRoles with empty roleIDs should fail")
+		var validationErr *client.ValidationError
+		require.ErrorAs(t, err, &validationErr)
+		assert.Equal(t, "roleIDs", validationErr.Field)
+	})
+}
+
+// TestRemoveOrganizationApplicationRoles_Validation tests validation errors
+func TestRemoveOrganizationApplicationRoles_Validation(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("empty orgID", func(t *testing.T) {
+		err := testClient.RemoveOrganizationApplicationRoles(ctx, "", "app-123", []string{"role-1"})
+		require.Error(t, err, "RemoveOrganizationApplicationRoles with empty orgID should fail")
+		var validationErr *client.ValidationError
+		require.ErrorAs(t, err, &validationErr)
+		assert.Equal(t, "orgID", validationErr.Field)
+	})
+
+	t.Run("empty applicationID", func(t *testing.T) {
+		err := testClient.RemoveOrganizationApplicationRoles(ctx, "org-123", "", []string{"role-1"})
+		require.Error(t, err, "RemoveOrganizationApplicationRoles with empty applicationID should fail")
+		var validationErr *client.ValidationError
+		require.ErrorAs(t, err, &validationErr)
+		assert.Equal(t, "applicationID", validationErr.Field)
+	})
+
+	t.Run("empty roleIDs", func(t *testing.T) {
+		err := testClient.RemoveOrganizationApplicationRoles(ctx, "org-123", "app-123", []string{})
+		require.Error(t, err, "RemoveOrganizationApplicationRoles with empty roleIDs should fail")
+		var validationErr *client.ValidationError
+		require.ErrorAs(t, err, &validationErr)
+		assert.Equal(t, "roleIDs", validationErr.Field)
+	})
+}
+
+// TestCreateApplication_Validation tests validation errors
+func TestCreateApplication_Validation(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("empty name", func(t *testing.T) {
+		_, err := testClient.CreateApplication(ctx, models.ApplicationCreate{
+			Name: "",
+			Type: models.ApplicationTypeSPA,
+		})
+		require.Error(t, err, "CreateApplication with empty name should fail")
+		var validationErr *client.ValidationError
+		require.ErrorAs(t, err, &validationErr)
+		assert.Equal(t, "name", validationErr.Field)
+	})
+
+	t.Run("empty type", func(t *testing.T) {
+		_, err := testClient.CreateApplication(ctx, models.ApplicationCreate{
+			Name: "Test App",
+			Type: "",
+		})
+		require.Error(t, err, "CreateApplication with empty type should fail")
+		var validationErr *client.ValidationError
+		require.ErrorAs(t, err, &validationErr)
+		assert.Equal(t, "type", validationErr.Field)
+	})
 }

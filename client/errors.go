@@ -37,6 +37,9 @@ var (
 
 	// ErrInvalidInput indicates validation failure for input parameters.
 	ErrInvalidInput = errors.New("invalid input")
+
+	// ErrUserNotFound indicates no user was found matching the search criteria.
+	ErrUserNotFound = errors.New("user not found")
 )
 
 // APIError represents an error response from the Logto API.

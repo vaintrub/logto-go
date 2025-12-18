@@ -3,17 +3,13 @@ package client
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
-	"time"
 
 	"github.com/vaintrub/logto-go/models"
 )
 
 // ListOrganizationMembers lists all members of an organization with their roles.
-// Returns members and any error. If some items failed to parse, returns partial results
-// with a combined error containing all parse failures.
 func (a *Adapter) ListOrganizationMembers(ctx context.Context, orgID string) ([]models.OrganizationMember, error) {
 	if orgID == "" {
 		return nil, &ValidationError{Field: "orgID", Message: "cannot be empty"}
@@ -28,25 +24,11 @@ func (a *Adapter) ListOrganizationMembers(ctx context.Context, orgID string) ([]
 		return nil, err
 	}
 
-	var membersData []json.RawMessage
-	if err := json.Unmarshal(body, &membersData); err != nil {
-		return nil, fmt.Errorf("unmarshal organization members response: %w", err)
+	var members []models.OrganizationMember
+	if err := json.Unmarshal(body, &members); err != nil {
+		return nil, fmt.Errorf("unmarshal organization members: %w", err)
 	}
 
-	members := make([]models.OrganizationMember, 0, len(membersData))
-	var parseErrs []error
-	for _, memberData := range membersData {
-		member, err := parseOrganizationMemberResponse(memberData)
-		if err != nil {
-			parseErrs = append(parseErrs, err)
-			continue
-		}
-		members = append(members, *member)
-	}
-
-	if len(parseErrs) > 0 {
-		return members, fmt.Errorf("failed to parse %d member(s): %w", len(parseErrs), errors.Join(parseErrs...))
-	}
 	return members, nil
 }
 
@@ -178,88 +160,28 @@ func (a *Adapter) GetUserRolesInOrganization(ctx context.Context, orgID, userID 
 	return parseOrganizationRolesSlice(body)
 }
 
-// parseOrganizationMemberResponse parses user with their organization roles from API response
-func parseOrganizationMemberResponse(data []byte) (*models.OrganizationMember, error) {
-	var raw struct {
-		ID                     string                         `json:"id"`
-		TenantID               string                         `json:"tenantId"`
-		Username               string                         `json:"username"`
-		PrimaryEmail           string                         `json:"primaryEmail"`
-		PrimaryPhone           string                         `json:"primaryPhone"`
-		Name                   string                         `json:"name"`
-		Avatar                 string                         `json:"avatar"`
-		CustomData             map[string]interface{}         `json:"customData"`
-		Identities             map[string]models.UserIdentity `json:"identities"`
-		LastSignInAt           *int64                         `json:"lastSignInAt"`
-		CreatedAt              int64                          `json:"createdAt"`
-		UpdatedAt              int64                          `json:"updatedAt"`
-		Profile                *models.UserProfile            `json:"profile"`
-		ApplicationID          string                         `json:"applicationId"`
-		IsSuspended            bool                           `json:"isSuspended"`
-		HasPassword            bool                           `json:"hasPassword"`
-		SSOIdentities          []models.SSOIdentity           `json:"ssoIdentities"`
-		MFAVerificationFactors []string                       `json:"mfaVerificationFactors"`
-		OrganizationRoles      []struct {
-			ID          string `json:"id"`
-			TenantID    string `json:"tenantId"`
-			Name        string `json:"name"`
-			Description string `json:"description"`
-		} `json:"organizationRoles"`
+// GetUserScopesInOrganization gets a user's scopes in an organization
+func (a *Adapter) GetUserScopesInOrganization(ctx context.Context, orgID, userID string) ([]models.OrganizationScope, error) {
+	if orgID == "" {
+		return nil, &ValidationError{Field: "orgID", Message: "cannot be empty"}
+	}
+	if userID == "" {
+		return nil, &ValidationError{Field: "userID", Message: "cannot be empty"}
 	}
 
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return nil, fmt.Errorf("parse organization member: %w", err)
+	body, _, err := a.doRequest(ctx, requestConfig{
+		method:     http.MethodGet,
+		path:       "/api/organizations/%s/users/%s/scopes",
+		pathParams: []string{orgID, userID},
+	})
+	if err != nil {
+		return nil, err
 	}
 
-	customData := raw.CustomData
-	if customData == nil {
-		customData = make(map[string]interface{})
+	var scopes []models.OrganizationScope
+	if err := json.Unmarshal(body, &scopes); err != nil {
+		return nil, fmt.Errorf("unmarshal user organization scopes: %w", err)
 	}
 
-	identities := raw.Identities
-	if identities == nil {
-		identities = make(map[string]models.UserIdentity)
-	}
-
-	var lastSignInAt *time.Time
-	if raw.LastSignInAt != nil {
-		t := time.UnixMilli(*raw.LastSignInAt)
-		lastSignInAt = &t
-	}
-
-	user := &models.User{
-		ID:                     raw.ID,
-		TenantID:               raw.TenantID,
-		Username:               raw.Username,
-		PrimaryEmail:           raw.PrimaryEmail,
-		PrimaryPhone:           raw.PrimaryPhone,
-		Name:                   raw.Name,
-		Avatar:                 raw.Avatar,
-		CustomData:             customData,
-		Identities:             identities,
-		LastSignInAt:           lastSignInAt,
-		CreatedAt:              time.UnixMilli(raw.CreatedAt),
-		UpdatedAt:              time.UnixMilli(raw.UpdatedAt),
-		Profile:                raw.Profile,
-		ApplicationID:          raw.ApplicationID,
-		IsSuspended:            raw.IsSuspended,
-		HasPassword:            raw.HasPassword,
-		SSOIdentities:          raw.SSOIdentities,
-		MFAVerificationFactors: raw.MFAVerificationFactors,
-	}
-
-	roles := make([]models.OrganizationRole, len(raw.OrganizationRoles))
-	for i, r := range raw.OrganizationRoles {
-		roles[i] = models.OrganizationRole{
-			ID:          r.ID,
-			TenantID:    r.TenantID,
-			Name:        r.Name,
-			Description: r.Description,
-		}
-	}
-
-	return &models.OrganizationMember{
-		User:  user,
-		Roles: roles,
-	}, nil
+	return scopes, nil
 }

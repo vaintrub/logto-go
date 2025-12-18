@@ -3,11 +3,9 @@ package client
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
-	"time"
 
 	"github.com/vaintrub/logto-go/models"
 )
@@ -45,28 +43,22 @@ func (a *Adapter) GetUserByEmail(ctx context.Context, email string) (*models.Use
 		return nil, err
 	}
 
-	var users []json.RawMessage
+	var users []models.User
 	if err := json.Unmarshal(body, &users); err != nil {
-		return nil, fmt.Errorf("unmarshal users search response: %w", err)
+		return nil, fmt.Errorf("unmarshal users search: %w", err)
 	}
 
 	// Find user with exact email match
-	for _, userData := range users {
-		user, err := parseUserResponse(userData)
-		if err != nil {
-			continue
-		}
-		if user.PrimaryEmail == email {
-			return user, nil
+	for i := range users {
+		if users[i].PrimaryEmail == email {
+			return &users[i], nil
 		}
 	}
 
-	return nil, &APIError{StatusCode: 404, Message: fmt.Sprintf("user not found with email: %s", email)}
+	return nil, ErrUserNotFound
 }
 
 // ListUsers retrieves all users.
-// Returns users and any error. If some items failed to parse, returns partial results
-// with a combined error containing all parse failures.
 func (a *Adapter) ListUsers(ctx context.Context) ([]models.User, error) {
 	body, _, err := a.doRequest(ctx, requestConfig{
 		method: http.MethodGet,
@@ -76,25 +68,11 @@ func (a *Adapter) ListUsers(ctx context.Context) ([]models.User, error) {
 		return nil, err
 	}
 
-	var usersData []json.RawMessage
-	if err := json.Unmarshal(body, &usersData); err != nil {
-		return nil, fmt.Errorf("unmarshal users response: %w", err)
+	var users []models.User
+	if err := json.Unmarshal(body, &users); err != nil {
+		return nil, fmt.Errorf("unmarshal users: %w", err)
 	}
 
-	users := make([]models.User, 0, len(usersData))
-	var parseErrs []error
-	for _, userData := range usersData {
-		user, err := parseUserResponse(userData)
-		if err != nil {
-			parseErrs = append(parseErrs, err)
-			continue
-		}
-		users = append(users, *user)
-	}
-
-	if len(parseErrs) > 0 {
-		return users, fmt.Errorf("failed to parse %d user(s): %w", len(parseErrs), errors.Join(parseErrs...))
-	}
 	return users, nil
 }
 
@@ -284,19 +262,9 @@ func (a *Adapter) listUsersPaginated(ctx context.Context, page, pageSize int) ([
 		return nil, err
 	}
 
-	var usersData []json.RawMessage
-	if err := json.Unmarshal(body, &usersData); err != nil {
-		return nil, fmt.Errorf("unmarshal paginated users response: %w", err)
-	}
-
-	users := make([]models.User, 0, len(usersData))
-	for _, userData := range usersData {
-		user, err := parseUserResponse(userData)
-		if err != nil {
-			// Skip invalid items in pagination - errors are less critical here
-			continue
-		}
-		users = append(users, *user)
+	var users []models.User
+	if err := json.Unmarshal(body, &users); err != nil {
+		return nil, fmt.Errorf("unmarshal paginated users: %w", err)
 	}
 
 	return users, nil
@@ -304,66 +272,15 @@ func (a *Adapter) listUsersPaginated(ctx context.Context, page, pageSize int) ([
 
 // parseUserResponse parses user from API response
 func parseUserResponse(data []byte) (*models.User, error) {
-	// Parse with intermediate struct to handle timestamp conversion
-	var raw struct {
-		ID                     string                         `json:"id"`
-		TenantID               string                         `json:"tenantId"`
-		Username               string                         `json:"username"`
-		PrimaryEmail           string                         `json:"primaryEmail"`
-		PrimaryPhone           string                         `json:"primaryPhone"`
-		Name                   string                         `json:"name"`
-		Avatar                 string                         `json:"avatar"`
-		CustomData             map[string]interface{}         `json:"customData"`
-		Identities             map[string]models.UserIdentity `json:"identities"`
-		LastSignInAt           *int64                         `json:"lastSignInAt"`
-		CreatedAt              int64                          `json:"createdAt"`
-		UpdatedAt              int64                          `json:"updatedAt"`
-		Profile                *models.UserProfile            `json:"profile"`
-		ApplicationID          string                         `json:"applicationId"`
-		IsSuspended            bool                           `json:"isSuspended"`
-		HasPassword            bool                           `json:"hasPassword"`
-		SSOIdentities          []models.SSOIdentity           `json:"ssoIdentities"`
-		MFAVerificationFactors []string                       `json:"mfaVerificationFactors"`
-	}
-
-	if err := json.Unmarshal(data, &raw); err != nil {
+	var user models.User
+	if err := json.Unmarshal(data, &user); err != nil {
 		return nil, fmt.Errorf("parse user: %w", err)
 	}
-
-	customData := raw.CustomData
-	if customData == nil {
-		customData = make(map[string]interface{})
+	if user.CustomData == nil {
+		user.CustomData = make(map[string]interface{})
 	}
-
-	identities := raw.Identities
-	if identities == nil {
-		identities = make(map[string]models.UserIdentity)
+	if user.Identities == nil {
+		user.Identities = make(map[string]models.UserIdentity)
 	}
-
-	var lastSignInAt *time.Time
-	if raw.LastSignInAt != nil {
-		t := time.UnixMilli(*raw.LastSignInAt)
-		lastSignInAt = &t
-	}
-
-	return &models.User{
-		ID:                     raw.ID,
-		TenantID:               raw.TenantID,
-		Username:               raw.Username,
-		PrimaryEmail:           raw.PrimaryEmail,
-		PrimaryPhone:           raw.PrimaryPhone,
-		Name:                   raw.Name,
-		Avatar:                 raw.Avatar,
-		CustomData:             customData,
-		Identities:             identities,
-		LastSignInAt:           lastSignInAt,
-		CreatedAt:              time.UnixMilli(raw.CreatedAt),
-		UpdatedAt:              time.UnixMilli(raw.UpdatedAt),
-		Profile:                raw.Profile,
-		ApplicationID:          raw.ApplicationID,
-		IsSuspended:            raw.IsSuspended,
-		HasPassword:            raw.HasPassword,
-		SSOIdentities:          raw.SSOIdentities,
-		MFAVerificationFactors: raw.MFAVerificationFactors,
-	}, nil
+	return &user, nil
 }

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"time"
 
 	"github.com/vaintrub/logto-go/models"
 )
@@ -20,37 +19,9 @@ func (a *Adapter) ListOrganizationRoles(ctx context.Context) ([]models.Organizat
 		return nil, err
 	}
 
-	var rolesResp []struct {
-		ID          string `json:"id"`
-		Name        string `json:"name"`
-		Description string `json:"description"`
-		Scopes      []struct {
-			ID          string `json:"id"`
-			Name        string `json:"name"`
-			Description string `json:"description"`
-		} `json:"scopes"`
-	}
-
-	if err := json.Unmarshal(body, &rolesResp); err != nil {
-		return nil, fmt.Errorf("unmarshal organization roles response: %w", err)
-	}
-
-	roles := make([]models.OrganizationRole, len(rolesResp))
-	for i, r := range rolesResp {
-		scopes := make([]models.OrganizationScope, len(r.Scopes))
-		for j, s := range r.Scopes {
-			scopes[j] = models.OrganizationScope{
-				ID:          s.ID,
-				Name:        s.Name,
-				Description: s.Description,
-			}
-		}
-		roles[i] = models.OrganizationRole{
-			ID:          r.ID,
-			Name:        r.Name,
-			Description: r.Description,
-			Scopes:      scopes,
-		}
+	var roles []models.OrganizationRole
+	if err := json.Unmarshal(body, &roles); err != nil {
+		return nil, fmt.Errorf("unmarshal organization roles: %w", err)
 	}
 
 	return roles, nil
@@ -62,7 +33,6 @@ func (a *Adapter) GetOrganizationRole(ctx context.Context, roleID string) (*mode
 		return nil, &ValidationError{Field: "roleID", Message: "cannot be empty"}
 	}
 
-	// Get role details
 	body, _, err := a.doRequest(ctx, requestConfig{
 		method:     http.MethodGet,
 		path:       "/api/organization-roles/%s",
@@ -72,14 +42,9 @@ func (a *Adapter) GetOrganizationRole(ctx context.Context, roleID string) (*mode
 		return nil, err
 	}
 
-	var roleResp struct {
-		ID          string `json:"id"`
-		Name        string `json:"name"`
-		Description string `json:"description"`
-	}
-
-	if err := json.Unmarshal(body, &roleResp); err != nil {
-		return nil, fmt.Errorf("unmarshal organization role response: %w", err)
+	var role models.OrganizationRole
+	if err := json.Unmarshal(body, &role); err != nil {
+		return nil, fmt.Errorf("unmarshal organization role: %w", err)
 	}
 
 	// Get role scopes (separate endpoint in Logto API)
@@ -87,13 +52,9 @@ func (a *Adapter) GetOrganizationRole(ctx context.Context, roleID string) (*mode
 	if err != nil {
 		return nil, err
 	}
+	role.Scopes = scopes
 
-	return &models.OrganizationRole{
-		ID:          roleResp.ID,
-		Name:        roleResp.Name,
-		Description: roleResp.Description,
-		Scopes:      scopes,
-	}, nil
+	return &role, nil
 }
 
 // GetOrganizationRoleScopes retrieves scopes assigned to an organization role
@@ -111,23 +72,9 @@ func (a *Adapter) GetOrganizationRoleScopes(ctx context.Context, roleID string) 
 		return nil, err
 	}
 
-	var scopesResp []struct {
-		ID          string `json:"id"`
-		Name        string `json:"name"`
-		Description string `json:"description"`
-	}
-
-	if err := json.Unmarshal(body, &scopesResp); err != nil {
-		return nil, fmt.Errorf("unmarshal organization role scopes response: %w", err)
-	}
-
-	scopes := make([]models.OrganizationScope, len(scopesResp))
-	for i, s := range scopesResp {
-		scopes[i] = models.OrganizationScope{
-			ID:          s.ID,
-			Name:        s.Name,
-			Description: s.Description,
-		}
+	var scopes []models.OrganizationScope
+	if err := json.Unmarshal(body, &scopes); err != nil {
+		return nil, fmt.Errorf("unmarshal organization role scopes: %w", err)
 	}
 
 	return scopes, nil
@@ -206,6 +153,9 @@ func (a *Adapter) AddOrganizationRoleScopes(ctx context.Context, roleID string, 
 	if roleID == "" {
 		return &ValidationError{Field: "roleID", Message: "cannot be empty"}
 	}
+	if len(scopeIDs) == 0 {
+		return &ValidationError{Field: "scopeIDs", Message: "cannot be empty"}
+	}
 
 	return a.doNoContent(ctx, requestConfig{
 		method:      http.MethodPost,
@@ -237,6 +187,9 @@ func (a *Adapter) RemoveOrganizationRoleScope(ctx context.Context, roleID, scope
 func (a *Adapter) AssignResourceScopesToOrganizationRole(ctx context.Context, roleID string, scopeIDs []string) error {
 	if roleID == "" {
 		return &ValidationError{Field: "roleID", Message: "cannot be empty"}
+	}
+	if len(scopeIDs) == 0 {
+		return &ValidationError{Field: "scopeIDs", Message: "cannot be empty"}
 	}
 
 	return a.doNoContent(ctx, requestConfig{
@@ -276,18 +229,9 @@ func (a *Adapter) ListOrganizationScopes(ctx context.Context) ([]models.Organiza
 		return nil, err
 	}
 
-	var scopesData []json.RawMessage
-	if err := json.Unmarshal(body, &scopesData); err != nil {
-		return nil, fmt.Errorf("unmarshal organization scopes response: %w", err)
-	}
-
-	scopes := make([]models.OrganizationScope, 0, len(scopesData))
-	for _, data := range scopesData {
-		scope, err := parseOrganizationScopeResponse(data)
-		if err != nil {
-			return nil, err
-		}
-		scopes = append(scopes, *scope)
+	var scopes []models.OrganizationScope
+	if err := json.Unmarshal(body, &scopes); err != nil {
+		return nil, fmt.Errorf("unmarshal organization scopes: %w", err)
 	}
 
 	return scopes, nil
@@ -347,66 +291,27 @@ func (a *Adapter) DeleteOrganizationScope(ctx context.Context, scopeID string) e
 
 // parseOrganizationRolesSlice parses array of organization roles from API response
 func parseOrganizationRolesSlice(data []byte) ([]models.OrganizationRole, error) {
-	var rolesData []json.RawMessage
-	if err := json.Unmarshal(data, &rolesData); err != nil {
+	var roles []models.OrganizationRole
+	if err := json.Unmarshal(data, &roles); err != nil {
 		return nil, fmt.Errorf("unmarshal organization roles: %w", err)
-	}
-
-	roles := make([]models.OrganizationRole, 0, len(rolesData))
-	for _, raw := range rolesData {
-		role, err := parseOrganizationRoleResponse(raw)
-		if err != nil {
-			return nil, err
-		}
-		roles = append(roles, *role)
 	}
 	return roles, nil
 }
 
 // parseOrganizationRoleResponse parses organization role from API response
 func parseOrganizationRoleResponse(data []byte) (*models.OrganizationRole, error) {
-	var raw struct {
-		ID          string `json:"id"`
-		TenantID    string `json:"tenantId"`
-		Name        string `json:"name"`
-		Description string `json:"description"`
-		Type        string `json:"type"`
-		CreatedAt   int64  `json:"createdAt"`
-	}
-
-	if err := json.Unmarshal(data, &raw); err != nil {
+	var role models.OrganizationRole
+	if err := json.Unmarshal(data, &role); err != nil {
 		return nil, fmt.Errorf("parse organization role: %w", err)
 	}
-
-	return &models.OrganizationRole{
-		ID:          raw.ID,
-		TenantID:    raw.TenantID,
-		Name:        raw.Name,
-		Description: raw.Description,
-		Type:        raw.Type,
-		CreatedAt:   time.UnixMilli(raw.CreatedAt),
-	}, nil
+	return &role, nil
 }
 
 // parseOrganizationScopeResponse parses organization scope from API response
 func parseOrganizationScopeResponse(data []byte) (*models.OrganizationScope, error) {
-	var raw struct {
-		ID          string `json:"id"`
-		TenantID    string `json:"tenantId"`
-		Name        string `json:"name"`
-		Description string `json:"description"`
-		CreatedAt   int64  `json:"createdAt"`
-	}
-
-	if err := json.Unmarshal(data, &raw); err != nil {
+	var scope models.OrganizationScope
+	if err := json.Unmarshal(data, &scope); err != nil {
 		return nil, fmt.Errorf("parse organization scope: %w", err)
 	}
-
-	return &models.OrganizationScope{
-		ID:          raw.ID,
-		TenantID:    raw.TenantID,
-		Name:        raw.Name,
-		Description: raw.Description,
-		CreatedAt:   time.UnixMilli(raw.CreatedAt),
-	}, nil
+	return &scope, nil
 }

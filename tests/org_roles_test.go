@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/vaintrub/logto-go/client"
 	"github.com/vaintrub/logto-go/models"
 )
 
@@ -220,4 +221,181 @@ func TestAssignResourceScopesToOrganizationRole(t *testing.T) {
 	// Assign resource scope to organization role
 	err = testClient.AssignResourceScopesToOrganizationRole(ctx, roleID, []string{scopeID})
 	require.NoError(t, err, "AssignResourceScopesToOrganizationRole should succeed")
+}
+
+// === Validation Tests ===
+
+// TestGetOrganizationRole_Validation tests validation errors
+func TestGetOrganizationRole_Validation(t *testing.T) {
+	ctx := context.Background()
+
+	_, err := testClient.GetOrganizationRole(ctx, "")
+	require.Error(t, err, "GetOrganizationRole with empty roleID should fail")
+	var validationErr *client.ValidationError
+	require.ErrorAs(t, err, &validationErr)
+	assert.Equal(t, "roleID", validationErr.Field)
+}
+
+// TestUpdateOrganizationRole_Validation tests validation errors
+func TestUpdateOrganizationRole_Validation(t *testing.T) {
+	ctx := context.Background()
+
+	name := "test"
+	_, err := testClient.UpdateOrganizationRole(ctx, "", models.OrganizationRoleUpdate{Name: &name})
+	require.Error(t, err, "UpdateOrganizationRole with empty roleID should fail")
+	var validationErr *client.ValidationError
+	require.ErrorAs(t, err, &validationErr)
+	assert.Equal(t, "roleID", validationErr.Field)
+}
+
+// TestDeleteOrganizationRole_Validation tests validation errors
+func TestDeleteOrganizationRole_Validation(t *testing.T) {
+	ctx := context.Background()
+
+	err := testClient.DeleteOrganizationRole(ctx, "")
+	require.Error(t, err, "DeleteOrganizationRole with empty roleID should fail")
+	var validationErr *client.ValidationError
+	require.ErrorAs(t, err, &validationErr)
+	assert.Equal(t, "roleID", validationErr.Field)
+}
+
+// TestGetOrganizationScope_Validation tests validation errors
+func TestGetOrganizationScope_Validation(t *testing.T) {
+	ctx := context.Background()
+
+	_, err := testClient.GetOrganizationScope(ctx, "")
+	require.Error(t, err, "GetOrganizationScope with empty scopeID should fail")
+	var validationErr *client.ValidationError
+	require.ErrorAs(t, err, &validationErr)
+	assert.Equal(t, "scopeID", validationErr.Field)
+}
+
+// TestUpdateOrganizationScope_Validation tests validation errors
+func TestUpdateOrganizationScope_Validation(t *testing.T) {
+	ctx := context.Background()
+
+	desc := "test"
+	_, err := testClient.UpdateOrganizationScope(ctx, "", models.OrganizationScopeUpdate{Description: &desc})
+	require.Error(t, err, "UpdateOrganizationScope with empty scopeID should fail")
+	var validationErr *client.ValidationError
+	require.ErrorAs(t, err, &validationErr)
+	assert.Equal(t, "scopeID", validationErr.Field)
+}
+
+// TestDeleteOrganizationScope_Validation tests validation errors
+func TestDeleteOrganizationScope_Validation(t *testing.T) {
+	ctx := context.Background()
+
+	err := testClient.DeleteOrganizationScope(ctx, "")
+	require.Error(t, err, "DeleteOrganizationScope with empty scopeID should fail")
+	var validationErr *client.ValidationError
+	require.ErrorAs(t, err, &validationErr)
+	assert.Equal(t, "scopeID", validationErr.Field)
+}
+
+// TestGetOrganizationRoleScopes_Validation tests validation errors
+func TestGetOrganizationRoleScopes_Validation(t *testing.T) {
+	ctx := context.Background()
+
+	_, err := testClient.GetOrganizationRoleScopes(ctx, "")
+	require.Error(t, err, "GetOrganizationRoleScopes with empty roleID should fail")
+	var validationErr *client.ValidationError
+	require.ErrorAs(t, err, &validationErr)
+	assert.Equal(t, "roleID", validationErr.Field)
+}
+
+// TestSetOrganizationRoleScopes_Validation tests validation errors
+func TestSetOrganizationRoleScopes_Validation(t *testing.T) {
+	ctx := context.Background()
+
+	err := testClient.SetOrganizationRoleScopes(ctx, "", []string{"scope-1"})
+	require.Error(t, err, "SetOrganizationRoleScopes with empty roleID should fail")
+	var validationErr *client.ValidationError
+	require.ErrorAs(t, err, &validationErr)
+	assert.Equal(t, "roleID", validationErr.Field)
+}
+
+// TestAddOrganizationRoleScopes_Validation tests validation errors
+func TestAddOrganizationRoleScopes_Validation(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("empty roleID", func(t *testing.T) {
+		err := testClient.AddOrganizationRoleScopes(ctx, "", []string{"scope-1"})
+		require.Error(t, err, "AddOrganizationRoleScopes with empty roleID should fail")
+		var validationErr *client.ValidationError
+		require.ErrorAs(t, err, &validationErr)
+		assert.Equal(t, "roleID", validationErr.Field)
+	})
+
+	t.Run("empty scopeIDs", func(t *testing.T) {
+		err := testClient.AddOrganizationRoleScopes(ctx, "role-123", []string{})
+		require.Error(t, err, "AddOrganizationRoleScopes with empty scopeIDs should fail")
+		var validationErr *client.ValidationError
+		require.ErrorAs(t, err, &validationErr)
+		assert.Equal(t, "scopeIDs", validationErr.Field)
+	})
+}
+
+// TestRemoveOrganizationRoleScope_Validation tests validation errors
+func TestRemoveOrganizationRoleScope_Validation(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("empty roleID", func(t *testing.T) {
+		err := testClient.RemoveOrganizationRoleScope(ctx, "", "scope-123")
+		require.Error(t, err, "RemoveOrganizationRoleScope with empty roleID should fail")
+		var validationErr *client.ValidationError
+		require.ErrorAs(t, err, &validationErr)
+		assert.Equal(t, "roleID", validationErr.Field)
+	})
+
+	t.Run("empty scopeID", func(t *testing.T) {
+		err := testClient.RemoveOrganizationRoleScope(ctx, "role-123", "")
+		require.Error(t, err, "RemoveOrganizationRoleScope with empty scopeID should fail")
+		var validationErr *client.ValidationError
+		require.ErrorAs(t, err, &validationErr)
+		assert.Equal(t, "scopeID", validationErr.Field)
+	})
+}
+
+// TestAssignResourceScopesToOrganizationRole_Validation tests validation errors
+func TestAssignResourceScopesToOrganizationRole_Validation(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("empty roleID", func(t *testing.T) {
+		err := testClient.AssignResourceScopesToOrganizationRole(ctx, "", []string{"scope-1"})
+		require.Error(t, err, "AssignResourceScopesToOrganizationRole with empty roleID should fail")
+		var validationErr *client.ValidationError
+		require.ErrorAs(t, err, &validationErr)
+		assert.Equal(t, "roleID", validationErr.Field)
+	})
+
+	t.Run("empty scopeIDs", func(t *testing.T) {
+		err := testClient.AssignResourceScopesToOrganizationRole(ctx, "role-123", []string{})
+		require.Error(t, err, "AssignResourceScopesToOrganizationRole with empty scopeIDs should fail")
+		var validationErr *client.ValidationError
+		require.ErrorAs(t, err, &validationErr)
+		assert.Equal(t, "scopeIDs", validationErr.Field)
+	})
+}
+
+// TestCreateOrganizationRole_Validation tests validation errors
+func TestCreateOrganizationRole_Validation(t *testing.T) {
+	ctx := context.Background()
+
+	_, err := testClient.CreateOrganizationRole(ctx, models.OrganizationRoleCreate{Name: ""})
+	require.Error(t, err, "CreateOrganizationRole with empty name should fail")
+	var validationErr *client.ValidationError
+	require.ErrorAs(t, err, &validationErr)
+	assert.Equal(t, "name", validationErr.Field)
+}
+
+// TestCreateOrganizationScope_Validation tests validation errors
+func TestCreateOrganizationScope_Validation(t *testing.T) {
+	ctx := context.Background()
+
+	_, err := testClient.CreateOrganizationScope(ctx, models.OrganizationScopeCreate{Name: ""})
+	require.Error(t, err, "CreateOrganizationScope with empty name should fail")
+	var validationErr *client.ValidationError
+	require.ErrorAs(t, err, &validationErr)
+	assert.Equal(t, "name", validationErr.Field)
 }

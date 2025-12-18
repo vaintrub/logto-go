@@ -1,6 +1,6 @@
 package models
 
-import "time"
+import "encoding/json"
 
 // OrganizationBranding represents branding settings for an organization.
 type OrganizationBranding struct {
@@ -19,13 +19,31 @@ type Organization struct {
 	CustomData    map[string]interface{} `json:"customData"`
 	IsMfaRequired bool                   `json:"isMfaRequired"`
 	Branding      *OrganizationBranding  `json:"branding"`
-	CreatedAt     time.Time              `json:"createdAt"`
+	CreatedAt     UnixMilliTime          `json:"createdAt"`
 }
 
 // OrganizationMember represents a member in an organization with their roles.
 type OrganizationMember struct {
 	User  *User
 	Roles []OrganizationRole
+}
+
+// organizationMemberRaw is used for JSON unmarshaling of OrganizationMember.
+type organizationMemberRaw struct {
+	User
+	OrganizationRoles []OrganizationRole `json:"organizationRoles"`
+}
+
+// UnmarshalJSON implements custom JSON unmarshaling for OrganizationMember.
+// The API returns user fields at the top level with organizationRoles embedded.
+func (m *OrganizationMember) UnmarshalJSON(data []byte) error {
+	var raw organizationMemberRaw
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	m.User = &raw.User
+	m.Roles = raw.OrganizationRoles
+	return nil
 }
 
 // OrganizationCreate represents fields for creating a new organization.

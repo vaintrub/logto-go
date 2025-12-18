@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/vaintrub/logto-go/client"
 	"github.com/vaintrub/logto-go/models"
 )
 
@@ -100,4 +101,163 @@ func TestAPIResourceScopeCRUD(t *testing.T) {
 	// Delete scope
 	err = testClient.DeleteAPIResourceScope(ctx, resourceID, scopeID)
 	require.NoError(t, err, "DeleteAPIResourceScope should succeed")
+}
+
+// === Validation Tests ===
+
+// TestGetAPIResource_Validation tests validation errors
+func TestGetAPIResource_Validation(t *testing.T) {
+	ctx := context.Background()
+
+	_, err := testClient.GetAPIResource(ctx, "")
+	require.Error(t, err, "GetAPIResource with empty resourceID should fail")
+	var validationErr *client.ValidationError
+	require.ErrorAs(t, err, &validationErr)
+	assert.Equal(t, "resourceID", validationErr.Field)
+}
+
+// TestUpdateAPIResource_Validation tests validation errors
+func TestUpdateAPIResource_Validation(t *testing.T) {
+	ctx := context.Background()
+
+	name := "test"
+	_, err := testClient.UpdateAPIResource(ctx, "", models.APIResourceUpdate{Name: &name})
+	require.Error(t, err, "UpdateAPIResource with empty resourceID should fail")
+	var validationErr *client.ValidationError
+	require.ErrorAs(t, err, &validationErr)
+	assert.Equal(t, "resourceID", validationErr.Field)
+}
+
+// TestDeleteAPIResource_Validation tests validation errors
+func TestDeleteAPIResource_Validation(t *testing.T) {
+	ctx := context.Background()
+
+	err := testClient.DeleteAPIResource(ctx, "")
+	require.Error(t, err, "DeleteAPIResource with empty resourceID should fail")
+	var validationErr *client.ValidationError
+	require.ErrorAs(t, err, &validationErr)
+	assert.Equal(t, "resourceID", validationErr.Field)
+}
+
+// TestCreateAPIResource_Validation tests validation errors
+func TestCreateAPIResource_Validation(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("empty name", func(t *testing.T) {
+		_, err := testClient.CreateAPIResource(ctx, models.APIResourceCreate{
+			Name:      "",
+			Indicator: "https://api.test.com",
+		})
+		require.Error(t, err, "CreateAPIResource with empty name should fail")
+		var validationErr *client.ValidationError
+		require.ErrorAs(t, err, &validationErr)
+		assert.Equal(t, "name", validationErr.Field)
+	})
+
+	t.Run("empty indicator", func(t *testing.T) {
+		_, err := testClient.CreateAPIResource(ctx, models.APIResourceCreate{
+			Name:      "Test API",
+			Indicator: "",
+		})
+		require.Error(t, err, "CreateAPIResource with empty indicator should fail")
+		var validationErr *client.ValidationError
+		require.ErrorAs(t, err, &validationErr)
+		assert.Equal(t, "indicator", validationErr.Field)
+	})
+}
+
+// TestGetAPIResourceScope_Validation tests validation errors
+func TestGetAPIResourceScope_Validation(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("empty resourceID", func(t *testing.T) {
+		_, err := testClient.GetAPIResourceScope(ctx, "", "scope-123")
+		require.Error(t, err, "GetAPIResourceScope with empty resourceID should fail")
+		var validationErr *client.ValidationError
+		require.ErrorAs(t, err, &validationErr)
+		assert.Equal(t, "resourceID", validationErr.Field)
+	})
+
+	t.Run("empty scopeID", func(t *testing.T) {
+		_, err := testClient.GetAPIResourceScope(ctx, "resource-123", "")
+		require.Error(t, err, "GetAPIResourceScope with empty scopeID should fail")
+		var validationErr *client.ValidationError
+		require.ErrorAs(t, err, &validationErr)
+		assert.Equal(t, "scopeID", validationErr.Field)
+	})
+}
+
+// TestUpdateAPIResourceScope_Validation tests validation errors
+func TestUpdateAPIResourceScope_Validation(t *testing.T) {
+	ctx := context.Background()
+	desc := "test"
+
+	t.Run("empty resourceID", func(t *testing.T) {
+		_, err := testClient.UpdateAPIResourceScope(ctx, "", "scope-123", models.APIResourceScopeUpdate{Description: &desc})
+		require.Error(t, err, "UpdateAPIResourceScope with empty resourceID should fail")
+		var validationErr *client.ValidationError
+		require.ErrorAs(t, err, &validationErr)
+		assert.Equal(t, "resourceID", validationErr.Field)
+	})
+
+	t.Run("empty scopeID", func(t *testing.T) {
+		_, err := testClient.UpdateAPIResourceScope(ctx, "resource-123", "", models.APIResourceScopeUpdate{Description: &desc})
+		require.Error(t, err, "UpdateAPIResourceScope with empty scopeID should fail")
+		var validationErr *client.ValidationError
+		require.ErrorAs(t, err, &validationErr)
+		assert.Equal(t, "scopeID", validationErr.Field)
+	})
+}
+
+// TestDeleteAPIResourceScope_Validation tests validation errors
+func TestDeleteAPIResourceScope_Validation(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("empty resourceID", func(t *testing.T) {
+		err := testClient.DeleteAPIResourceScope(ctx, "", "scope-123")
+		require.Error(t, err, "DeleteAPIResourceScope with empty resourceID should fail")
+		var validationErr *client.ValidationError
+		require.ErrorAs(t, err, &validationErr)
+		assert.Equal(t, "resourceID", validationErr.Field)
+	})
+
+	t.Run("empty scopeID", func(t *testing.T) {
+		err := testClient.DeleteAPIResourceScope(ctx, "resource-123", "")
+		require.Error(t, err, "DeleteAPIResourceScope with empty scopeID should fail")
+		var validationErr *client.ValidationError
+		require.ErrorAs(t, err, &validationErr)
+		assert.Equal(t, "scopeID", validationErr.Field)
+	})
+}
+
+// TestCreateAPIResourceScope_Validation tests validation errors
+func TestCreateAPIResourceScope_Validation(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("empty resourceID", func(t *testing.T) {
+		_, err := testClient.CreateAPIResourceScope(ctx, "", models.APIResourceScopeCreate{Name: "scope"})
+		require.Error(t, err, "CreateAPIResourceScope with empty resourceID should fail")
+		var validationErr *client.ValidationError
+		require.ErrorAs(t, err, &validationErr)
+		assert.Equal(t, "resourceID", validationErr.Field)
+	})
+
+	t.Run("empty name", func(t *testing.T) {
+		_, err := testClient.CreateAPIResourceScope(ctx, "resource-123", models.APIResourceScopeCreate{Name: ""})
+		require.Error(t, err, "CreateAPIResourceScope with empty name should fail")
+		var validationErr *client.ValidationError
+		require.ErrorAs(t, err, &validationErr)
+		assert.Equal(t, "name", validationErr.Field)
+	})
+}
+
+// TestListAPIResourceScopes_Validation tests validation errors
+func TestListAPIResourceScopes_Validation(t *testing.T) {
+	ctx := context.Background()
+
+	_, err := testClient.ListAPIResourceScopes(ctx, "")
+	require.Error(t, err, "ListAPIResourceScopes with empty resourceID should fail")
+	var validationErr *client.ValidationError
+	require.ErrorAs(t, err, &validationErr)
+	assert.Equal(t, "resourceID", validationErr.Field)
 }

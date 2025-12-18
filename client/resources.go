@@ -3,10 +3,8 @@ package client
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
-	"time"
 
 	"github.com/vaintrub/logto-go/models"
 )
@@ -30,8 +28,6 @@ func (a *Adapter) GetAPIResource(ctx context.Context, resourceID string) (*model
 }
 
 // ListAPIResources lists all API resources.
-// Returns resources and any error. If some items failed to parse, returns partial results
-// with a combined error containing all parse failures.
 func (a *Adapter) ListAPIResources(ctx context.Context) ([]models.APIResource, error) {
 	body, _, err := a.doRequest(ctx, requestConfig{
 		method: http.MethodGet,
@@ -41,25 +37,11 @@ func (a *Adapter) ListAPIResources(ctx context.Context) ([]models.APIResource, e
 		return nil, err
 	}
 
-	var resourcesData []json.RawMessage
-	if err := json.Unmarshal(body, &resourcesData); err != nil {
-		return nil, fmt.Errorf("unmarshal API resources response: %w", err)
+	var resources []models.APIResource
+	if err := json.Unmarshal(body, &resources); err != nil {
+		return nil, fmt.Errorf("unmarshal API resources: %w", err)
 	}
 
-	resources := make([]models.APIResource, 0, len(resourcesData))
-	var parseErrs []error
-	for _, data := range resourcesData {
-		resource, err := parseAPIResourceResponse(data)
-		if err != nil {
-			parseErrs = append(parseErrs, err)
-			continue
-		}
-		resources = append(resources, *resource)
-	}
-
-	if len(parseErrs) > 0 {
-		return resources, fmt.Errorf("failed to parse %d resource(s): %w", len(parseErrs), errors.Join(parseErrs...))
-	}
 	return resources, nil
 }
 
@@ -120,6 +102,9 @@ func (a *Adapter) DeleteAPIResource(ctx context.Context, resourceID string) erro
 
 // GetAPIResourceScope retrieves a single scope for an API resource
 func (a *Adapter) GetAPIResourceScope(ctx context.Context, resourceID, scopeID string) (*models.APIResourceScope, error) {
+	if scopeID == "" {
+		return nil, &ValidationError{Field: "scopeID", Message: "cannot be empty"}
+	}
 	// Logto API doesn't have a direct GET endpoint for individual scopes,
 	// so we list all scopes and find the one we need
 	scopes, err := a.ListAPIResourceScopes(ctx, resourceID)
@@ -151,18 +136,9 @@ func (a *Adapter) ListAPIResourceScopes(ctx context.Context, resourceID string) 
 		return nil, err
 	}
 
-	var scopesData []json.RawMessage
-	if err := json.Unmarshal(body, &scopesData); err != nil {
-		return nil, fmt.Errorf("unmarshal API resource scopes response: %w", err)
-	}
-
-	scopes := make([]models.APIResourceScope, 0, len(scopesData))
-	for _, data := range scopesData {
-		scope, err := parseAPIResourceScopeResponse(data)
-		if err != nil {
-			return nil, err
-		}
-		scopes = append(scopes, *scope)
+	var scopes []models.APIResourceScope
+	if err := json.Unmarshal(body, &scopes); err != nil {
+		return nil, fmt.Errorf("unmarshal API resource scopes: %w", err)
 	}
 
 	return scopes, nil
@@ -232,52 +208,18 @@ func (a *Adapter) DeleteAPIResourceScope(ctx context.Context, resourceID, scopeI
 
 // parseAPIResourceScopeResponse parses API resource scope from API response
 func parseAPIResourceScopeResponse(data []byte) (*models.APIResourceScope, error) {
-	var raw struct {
-		ID          string `json:"id"`
-		TenantID    string `json:"tenantId"`
-		ResourceID  string `json:"resourceId"`
-		Name        string `json:"name"`
-		Description string `json:"description"`
-		CreatedAt   int64  `json:"createdAt"`
-	}
-
-	if err := json.Unmarshal(data, &raw); err != nil {
+	var scope models.APIResourceScope
+	if err := json.Unmarshal(data, &scope); err != nil {
 		return nil, fmt.Errorf("parse API resource scope: %w", err)
 	}
-
-	return &models.APIResourceScope{
-		ID:          raw.ID,
-		TenantID:    raw.TenantID,
-		ResourceID:  raw.ResourceID,
-		Name:        raw.Name,
-		Description: raw.Description,
-		CreatedAt:   time.UnixMilli(raw.CreatedAt),
-	}, nil
+	return &scope, nil
 }
 
 // parseAPIResourceResponse parses API resource from API response
 func parseAPIResourceResponse(data []byte) (*models.APIResource, error) {
-	var raw struct {
-		ID             string `json:"id"`
-		TenantID       string `json:"tenantId"`
-		Name           string `json:"name"`
-		Indicator      string `json:"indicator"`
-		AccessTokenTTL int    `json:"accessTokenTtl"`
-		IsDefault      bool   `json:"isDefault"`
-		CreatedAt      int64  `json:"createdAt"`
-	}
-
-	if err := json.Unmarshal(data, &raw); err != nil {
+	var resource models.APIResource
+	if err := json.Unmarshal(data, &resource); err != nil {
 		return nil, fmt.Errorf("parse API resource: %w", err)
 	}
-
-	return &models.APIResource{
-		ID:             raw.ID,
-		TenantID:       raw.TenantID,
-		Name:           raw.Name,
-		Indicator:      raw.Indicator,
-		AccessTokenTTL: raw.AccessTokenTTL,
-		IsDefault:      raw.IsDefault,
-		CreatedAt:      time.UnixMilli(raw.CreatedAt),
-	}, nil
+	return &resource, nil
 }

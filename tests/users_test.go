@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/vaintrub/logto-go/client"
 	"github.com/vaintrub/logto-go/models"
 )
 
@@ -229,9 +230,120 @@ func TestValidationErrorsUsers(t *testing.T) {
 
 	// Empty userID should fail
 	_, err := testClient.GetUser(ctx, "")
-	assert.Error(t, err, "GetUser with empty ID should fail")
+	require.Error(t, err, "GetUser with empty ID should fail")
+	var validationErr *client.ValidationError
+	require.ErrorAs(t, err, &validationErr)
+	assert.Equal(t, "userID", validationErr.Field)
 
 	// Empty username should fail
 	_, err = testClient.CreateUser(ctx, models.UserCreate{Password: "password"})
-	assert.Error(t, err, "CreateUser with empty username should fail")
+	require.Error(t, err, "CreateUser with empty username should fail")
+	require.ErrorAs(t, err, &validationErr)
+	assert.Equal(t, "username", validationErr.Field)
+}
+
+// TestGetUserByEmail_Validation tests validation errors for GetUserByEmail
+func TestGetUserByEmail_Validation(t *testing.T) {
+	ctx := context.Background()
+
+	_, err := testClient.GetUserByEmail(ctx, "")
+	require.Error(t, err, "GetUserByEmail with empty email should fail")
+	var validationErr *client.ValidationError
+	require.ErrorAs(t, err, &validationErr)
+	assert.Equal(t, "email", validationErr.Field)
+}
+
+// TestGetUserByEmail_NotFound tests GetUserByEmail with non-existent email
+func TestGetUserByEmail_NotFound(t *testing.T) {
+	ctx := context.Background()
+
+	_, err := testClient.GetUserByEmail(ctx, "nonexistent-email-12345@test.local")
+	assert.Error(t, err, "GetUserByEmail with non-existent email should fail")
+}
+
+// TestDeleteUser_Validation tests validation errors for DeleteUser
+func TestDeleteUser_Validation(t *testing.T) {
+	ctx := context.Background()
+
+	err := testClient.DeleteUser(ctx, "")
+	require.Error(t, err, "DeleteUser with empty userID should fail")
+	var validationErr *client.ValidationError
+	require.ErrorAs(t, err, &validationErr)
+	assert.Equal(t, "userID", validationErr.Field)
+}
+
+// TestSuspendUser_Validation tests validation errors for SuspendUser
+func TestSuspendUser_Validation(t *testing.T) {
+	ctx := context.Background()
+
+	err := testClient.SuspendUser(ctx, "", true)
+	require.Error(t, err, "SuspendUser with empty userID should fail")
+	var validationErr *client.ValidationError
+	require.ErrorAs(t, err, &validationErr)
+	assert.Equal(t, "userID", validationErr.Field)
+}
+
+// TestUpdateUserPassword_Validation tests validation errors for UpdateUserPassword
+func TestUpdateUserPassword_Validation(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("empty userID", func(t *testing.T) {
+		err := testClient.UpdateUserPassword(ctx, "", models.UserPasswordUpdate{Password: "newpass"})
+		require.Error(t, err, "UpdateUserPassword with empty userID should fail")
+		var validationErr *client.ValidationError
+		require.ErrorAs(t, err, &validationErr)
+		assert.Equal(t, "userID", validationErr.Field)
+	})
+
+	t.Run("empty password", func(t *testing.T) {
+		err := testClient.UpdateUserPassword(ctx, "user-123", models.UserPasswordUpdate{Password: ""})
+		require.Error(t, err, "UpdateUserPassword with empty password should fail")
+		var validationErr *client.ValidationError
+		require.ErrorAs(t, err, &validationErr)
+		assert.Equal(t, "password", validationErr.Field)
+	})
+}
+
+// TestHasUserPassword_Validation tests validation errors for HasUserPassword
+func TestHasUserPassword_Validation(t *testing.T) {
+	ctx := context.Background()
+
+	_, err := testClient.HasUserPassword(ctx, "")
+	require.Error(t, err, "HasUserPassword with empty userID should fail")
+	var validationErr *client.ValidationError
+	require.ErrorAs(t, err, &validationErr)
+	assert.Equal(t, "userID", validationErr.Field)
+}
+
+// TestVerifyUserPassword_Validation tests validation errors for VerifyUserPassword
+func TestVerifyUserPassword_Validation(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("empty userID", func(t *testing.T) {
+		_, err := testClient.VerifyUserPassword(ctx, "", "password")
+		require.Error(t, err, "VerifyUserPassword with empty userID should fail")
+		var validationErr *client.ValidationError
+		require.ErrorAs(t, err, &validationErr)
+		assert.Equal(t, "userID", validationErr.Field)
+	})
+
+	t.Run("empty password", func(t *testing.T) {
+		_, err := testClient.VerifyUserPassword(ctx, "user-123", "")
+		require.Error(t, err, "VerifyUserPassword with empty password should fail")
+		var validationErr *client.ValidationError
+		require.ErrorAs(t, err, &validationErr)
+		assert.Equal(t, "password", validationErr.Field)
+	})
+}
+
+// TestUpdateUser_Validation tests validation errors for UpdateUser
+func TestUpdateUser_Validation(t *testing.T) {
+	ctx := context.Background()
+
+	name := "test"
+	_, err := testClient.UpdateUser(ctx, "", models.UserUpdate{Name: &name})
+	require.Error(t, err, "UpdateUser with empty userID should fail")
+	var validationErr *client.ValidationError
+	require.ErrorAs(t, err, &validationErr)
+	assert.Equal(t, "userID", validationErr.Field)
 }

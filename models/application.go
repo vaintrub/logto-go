@@ -1,7 +1,5 @@
 package models
 
-import "time"
-
 // ApplicationType represents the type of Logto application.
 type ApplicationType string
 
@@ -57,7 +55,7 @@ type Application struct {
 	CustomData           map[string]interface{} `json:"customData"`
 	IsThirdParty         bool                   `json:"isThirdParty"`
 	IsAdmin              bool                   `json:"isAdmin"`
-	CreatedAt            time.Time              `json:"createdAt"`
+	CreatedAt            UnixMilliTime          `json:"createdAt"`
 }
 
 // ApplicationCreate represents fields for creating an application.
