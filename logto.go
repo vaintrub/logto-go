@@ -121,6 +121,37 @@ type (
 
 	// UnixMilliTime represents a Unix timestamp in milliseconds.
 	UnixMilliTime = models.UnixMilliTime
+
+	// UserOrganizationRolesUpdate represents fields for replacing user roles in an organization.
+	UserOrganizationRolesUpdate = models.UserOrganizationRolesUpdate
+
+	// UserIdentity represents a user's identity from a social/enterprise provider.
+	UserIdentity = models.UserIdentity
+	// UserProfile represents additional user profile information.
+	UserProfile = models.UserProfile
+	// ProfileAddress represents an address in user profile.
+	ProfileAddress = models.ProfileAddress
+	// SSOIdentity represents an SSO identity linked to a user.
+	SSOIdentity = models.SSOIdentity
+	// UserProfileUpdate represents fields for updating user profile.
+	UserProfileUpdate = models.UserProfileUpdate
+
+	// OrganizationBranding represents branding settings for an organization.
+	OrganizationBranding = models.OrganizationBranding
+
+	// ApplicationType represents the type of Logto application.
+	ApplicationType = models.ApplicationType
+	// OIDCClientMetadata represents OIDC client metadata for an application.
+	OIDCClientMetadata = models.OIDCClientMetadata
+	// CustomClientMetadata represents custom client metadata for an application.
+	CustomClientMetadata = models.CustomClientMetadata
+	// ProtectedAppMetadata represents protected app metadata.
+	ProtectedAppMetadata = models.ProtectedAppMetadata
+
+	// RoleType represents the type of role.
+	RoleType = models.RoleType
+	// OrganizationRoleType is an alias for RoleType.
+	OrganizationRoleType = models.OrganizationRoleType
 )
 
 // Re-export sentinel errors
@@ -147,6 +178,28 @@ var (
 	ErrUserNotFound = client.ErrUserNotFound
 	// ErrInvalidInput indicates invalid input parameters.
 	ErrInvalidInput = client.ErrInvalidInput
+)
+
+// Re-export application type constants
+const (
+	ApplicationTypeNative           = models.ApplicationTypeNative
+	ApplicationTypeSPA              = models.ApplicationTypeSPA
+	ApplicationTypeTraditional      = models.ApplicationTypeTraditional
+	ApplicationTypeMachineToMachine = models.ApplicationTypeMachineToMachine
+	ApplicationTypeProtected        = models.ApplicationTypeProtected
+	ApplicationTypeSAML             = models.ApplicationTypeSAML
+)
+
+// Re-export role type constants
+const (
+	RoleTypeUser             = models.RoleTypeUser
+	RoleTypeMachineToMachine = models.RoleTypeMachineToMachine
+)
+
+// Re-export organization role type constants (aliases for RoleType)
+const (
+	OrganizationRoleTypeUser             = models.OrganizationRoleTypeUser
+	OrganizationRoleTypeMachineToMachine = models.OrganizationRoleTypeMachineToMachine
 )
 
 // NewClient creates a new Logto client with the provided options.
