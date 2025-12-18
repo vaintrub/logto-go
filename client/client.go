@@ -27,7 +27,7 @@ type Client interface {
 	GetUser(ctx context.Context, userID string) (*models.User, error)
 	GetUserByEmail(ctx context.Context, email string) (*models.User, error)
 	ListUsers(ctx context.Context) ([]models.User, error)
-	ListUsersIter(ctx context.Context, pageSize int) *UserIterator
+	ListUsersIter(pageSize int) *UserIterator
 	CreateUser(ctx context.Context, user models.UserCreate) (*models.User, error)
 	UpdateUser(ctx context.Context, userID string, update models.UserUpdate) (*models.User, error)
 	DeleteUser(ctx context.Context, userID string) error
@@ -41,7 +41,7 @@ type Client interface {
 	// Organizations (GET /organizations, GET /organizations/{id}, POST/PATCH/DELETE)
 	GetOrganization(ctx context.Context, orgID string) (*models.Organization, error)
 	ListOrganizations(ctx context.Context) ([]models.Organization, error)
-	ListOrganizationsIter(ctx context.Context, pageSize int) *OrganizationIterator
+	ListOrganizationsIter(pageSize int) *OrganizationIterator
 	ListUserOrganizations(ctx context.Context, userID string) ([]models.Organization, error)
 	CreateOrganization(ctx context.Context, org models.OrganizationCreate) (*models.Organization, error)
 	UpdateOrganization(ctx context.Context, orgID string, update models.OrganizationUpdate) (*models.Organization, error)
@@ -55,14 +55,15 @@ type Client interface {
 	UpdateUserRoles(ctx context.Context, orgID, userID string, update models.UserOrganizationRolesUpdate) error
 	AssignRolesToOrganizationUsers(ctx context.Context, orgID string, userIDs, roleIDs []string) error // Batch assign roles
 	GetUserRolesInOrganization(ctx context.Context, orgID, userID string) ([]models.OrganizationRole, error)
+	GetUserScopesInOrganization(ctx context.Context, orgID, userID string) ([]models.OrganizationScope, error)
 
 	// Organization Applications (GET/POST/DELETE /organizations/{id}/applications/*)
 	ListOrganizationApplications(ctx context.Context, orgID string) ([]models.Application, error)
 	AddOrganizationApplications(ctx context.Context, orgID string, applicationIDs []string) error
-	RemoveOrganizationApplication(ctx context.Context, orgID, applicationID string) error
+	RemoveApplicationFromOrganization(ctx context.Context, orgID, applicationID string) error
 	GetOrganizationApplicationRoles(ctx context.Context, orgID, applicationID string) ([]models.OrganizationRole, error)
 	AssignOrganizationApplicationRoles(ctx context.Context, orgID, applicationID string, roleIDs []string) error
-	RemoveOrganizationApplicationRoles(ctx context.Context, orgID, applicationID string, roleIDs []string) error
+	RemoveRolesFromOrganizationApplication(ctx context.Context, orgID, applicationID string, roleIDs []string) error
 
 	// Organization Roles (GET/POST/PATCH/DELETE /organization-roles)
 	GetOrganizationRole(ctx context.Context, roleID string) (*models.OrganizationRole, error)
@@ -75,7 +76,7 @@ type Client interface {
 	GetOrganizationRoleScopes(ctx context.Context, roleID string) ([]models.OrganizationScope, error)
 	SetOrganizationRoleScopes(ctx context.Context, roleID string, scopeIDs []string) error
 	AddOrganizationRoleScopes(ctx context.Context, roleID string, scopeIDs []string) error
-	RemoveOrganizationRoleScope(ctx context.Context, roleID, scopeID string) error
+	RemoveScopeFromOrganizationRole(ctx context.Context, roleID, scopeID string) error
 
 	// Organization Role Resource Scopes (POST /organization-roles/{id}/resource-scopes)
 	AssignResourceScopesToOrganizationRole(ctx context.Context, roleID string, scopeIDs []string) error
@@ -115,7 +116,7 @@ type Client interface {
 	// Role Scopes - API resource scopes assigned to roles (GET/POST/DELETE /roles/{id}/scopes)
 	ListRoleScopes(ctx context.Context, roleID string) ([]models.APIResourceScope, error)
 	AssignRoleScopes(ctx context.Context, roleID string, scopeIDs []string) error
-	RemoveRoleScope(ctx context.Context, roleID, scopeID string) error
+	RemoveScopeFromRole(ctx context.Context, roleID, scopeID string) error
 
 	// Role Users - Users assigned to roles (GET/POST/DELETE /roles/{id}/users)
 	ListRoleUsers(ctx context.Context, roleID string) ([]models.User, error)

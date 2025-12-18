@@ -426,9 +426,10 @@ func TestUserIterator_Collect(t *testing.T) {
 	defer server.Close()
 
 	adapter := newTestAdapter(t, server.URL)
-	iter := adapter.ListUsersIter(context.Background(), 10)
+	ctx := context.Background()
+	iter := adapter.ListUsersIter(10)
 
-	users, err := iter.Collect()
+	users, err := iter.Collect(ctx)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -466,10 +467,11 @@ func TestUserIterator_Next(t *testing.T) {
 	defer server.Close()
 
 	adapter := newTestAdapter(t, server.URL)
-	iter := adapter.ListUsersIter(context.Background(), 10)
+	ctx := context.Background()
+	iter := adapter.ListUsersIter(10)
 
 	// First call to Next should succeed
-	if !iter.Next() {
+	if !iter.Next(ctx) {
 		t.Fatal("expected Next() to return true")
 	}
 
@@ -482,7 +484,7 @@ func TestUserIterator_Next(t *testing.T) {
 	}
 
 	// Second call should return false (no more users)
-	if iter.Next() {
+	if iter.Next(ctx) {
 		t.Error("expected Next() to return false")
 	}
 
@@ -518,15 +520,16 @@ func TestUserIterator_Error(t *testing.T) {
 	defer server.Close()
 
 	adapter := newTestAdapter(t, server.URL)
-	iter := adapter.ListUsersIter(context.Background(), 1)
+	ctx := context.Background()
+	iter := adapter.ListUsersIter(1)
 
 	// First page succeeds
-	if !iter.Next() {
+	if !iter.Next(ctx) {
 		t.Fatal("expected first Next() to return true")
 	}
 
 	// Second call should fail
-	if iter.Next() {
+	if iter.Next(ctx) {
 		t.Error("expected Next() to return false on error")
 	}
 

@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -18,11 +17,12 @@ import (
 
 // Adapter implements the Client interface for Logto IDP
 type Adapter struct {
-	endpoint     string
-	m2mAppID     string
-	m2mAppSecret string
-	httpClient   *http.Client
-	opts         *options
+	endpoint          string
+	m2mAppID          string
+	m2mAppSecret      string
+	httpClient        *http.Client
+	opts              *options
+	cachedCredentials string // Base64 encoded credentials (computed once)
 
 	tokenMu     sync.RWMutex
 	cachedToken *m2mTokenCache
@@ -47,21 +47,34 @@ func New(endpoint, m2mAppID, m2mAppSecret string, opts ...Option) (*Adapter, err
 		opt(o)
 	}
 
-	// Create HTTP client
+	// Create HTTP client with proper connection pooling
 	httpClient := o.httpClient
 	if httpClient == nil {
-		httpClient = &http.Client{Timeout: o.timeout}
+		// Clone default transport and increase connection pool limits
+		// Default MaxIdleConnsPerHost is 2, which causes excessive TIME_WAIT connections
+		transport := http.DefaultTransport.(*http.Transport).Clone()
+		transport.MaxIdleConns = 100
+		transport.MaxIdleConnsPerHost = 100
+		transport.MaxConnsPerHost = 100
+		httpClient = &http.Client{
+			Timeout:   o.timeout,
+			Transport: transport,
+		}
 	}
 
 	// Normalize endpoint: remove trailing slash to prevent double slashes in URL concatenation
 	endpoint = strings.TrimSuffix(endpoint, "/")
 
+	// Pre-compute base64 credentials to avoid repeated encoding on each request
+	credentials := base64.StdEncoding.EncodeToString([]byte(m2mAppID + ":" + m2mAppSecret))
+
 	return &Adapter{
-		endpoint:     endpoint,
-		m2mAppID:     m2mAppID,
-		m2mAppSecret: m2mAppSecret,
-		httpClient:   httpClient,
-		opts:         o,
+		endpoint:          endpoint,
+		m2mAppID:          m2mAppID,
+		m2mAppSecret:      m2mAppSecret,
+		httpClient:        httpClient,
+		opts:              o,
+		cachedCredentials: credentials,
 	}, nil
 }
 
@@ -81,7 +94,9 @@ func (a *Adapter) Ping(ctx context.Context) error {
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		body, _ := io.ReadAll(resp.Body)
+		// Limit response size to prevent DoS
+		const maxErrorResponseSize = 1024 * 1024 // 1MB for error responses
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorResponseSize))
 		requestID := resp.Header.Get("X-Request-Id")
 		return newAPIErrorFromResponse(resp.StatusCode, body, requestID)
 	}
@@ -135,9 +150,8 @@ func (a *Adapter) AuthenticateM2M(ctx context.Context) (*TokenResult, error) {
 		return nil, err
 	}
 
-	// Use Basic Auth with M2M credentials
-	credentials := base64.StdEncoding.EncodeToString([]byte(a.m2mAppID + ":" + a.m2mAppSecret))
-	req.Header.Set("Authorization", "Basic "+credentials)
+	// Use Basic Auth with cached M2M credentials
+	req.Header.Set("Authorization", "Basic "+a.cachedCredentials)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 	resp, err := a.httpClient.Do(req)
@@ -208,9 +222,8 @@ func (a *Adapter) GetOrganizationToken(ctx context.Context, orgID string) (*Toke
 		return nil, err
 	}
 
-	// Use Basic Auth with M2M credentials
-	credentials := base64.StdEncoding.EncodeToString([]byte(a.m2mAppID + ":" + a.m2mAppSecret))
-	req.Header.Set("Authorization", "Basic "+credentials)
+	// Use Basic Auth with cached M2M credentials
+	req.Header.Set("Authorization", "Basic "+a.cachedCredentials)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 	resp, err := a.httpClient.Do(req)
@@ -254,18 +267,9 @@ func (a *Adapter) ListOrganizationApplications(ctx context.Context, orgID string
 		return nil, err
 	}
 
-	var appsData []json.RawMessage
-	if err := json.Unmarshal(body, &appsData); err != nil {
-		return nil, fmt.Errorf("unmarshal applications list: %w", err)
-	}
-
-	apps := make([]models.Application, 0, len(appsData))
-	for _, appData := range appsData {
-		app, err := parseApplicationResponse(appData)
-		if err != nil {
-			return nil, err
-		}
-		apps = append(apps, *app)
+	var apps []models.Application
+	if err := json.Unmarshal(body, &apps); err != nil {
+		return nil, fmt.Errorf("unmarshal applications: %w", err)
 	}
 
 	return apps, nil
@@ -292,8 +296,8 @@ func (a *Adapter) AddOrganizationApplications(ctx context.Context, orgID string,
 	return err
 }
 
-// RemoveOrganizationApplication removes an application from an organization
-func (a *Adapter) RemoveOrganizationApplication(ctx context.Context, orgID, applicationID string) error {
+// RemoveApplicationFromOrganization removes an application from an organization
+func (a *Adapter) RemoveApplicationFromOrganization(ctx context.Context, orgID, applicationID string) error {
 	if orgID == "" {
 		return &ValidationError{Field: "orgID", Message: "cannot be empty"}
 	}
@@ -355,8 +359,8 @@ func (a *Adapter) AssignOrganizationApplicationRoles(ctx context.Context, orgID,
 	return err
 }
 
-// RemoveOrganizationApplicationRoles removes roles from an application in an organization
-func (a *Adapter) RemoveOrganizationApplicationRoles(ctx context.Context, orgID, applicationID string, roleIDs []string) error {
+// RemoveRolesFromOrganizationApplication removes roles from an application in an organization
+func (a *Adapter) RemoveRolesFromOrganizationApplication(ctx context.Context, orgID, applicationID string, roleIDs []string) error {
 	if orgID == "" {
 		return &ValidationError{Field: "orgID", Message: "cannot be empty"}
 	}
@@ -383,8 +387,6 @@ func (a *Adapter) RemoveOrganizationApplicationRoles(ctx context.Context, orgID,
 }
 
 // ListApplications retrieves all applications.
-// Returns applications and any error. If some items failed to parse, returns partial results
-// with a combined error containing all parse failures.
 func (a *Adapter) ListApplications(ctx context.Context) ([]models.Application, error) {
 	body, _, err := a.doRequest(ctx, requestConfig{
 		method: http.MethodGet,
@@ -394,25 +396,11 @@ func (a *Adapter) ListApplications(ctx context.Context) ([]models.Application, e
 		return nil, err
 	}
 
-	var appsData []json.RawMessage
-	if err := json.Unmarshal(body, &appsData); err != nil {
-		return nil, fmt.Errorf("unmarshal applications response: %w", err)
+	var apps []models.Application
+	if err := json.Unmarshal(body, &apps); err != nil {
+		return nil, fmt.Errorf("unmarshal applications: %w", err)
 	}
 
-	apps := make([]models.Application, 0, len(appsData))
-	var parseErrs []error
-	for _, appData := range appsData {
-		app, err := parseApplicationResponse(appData)
-		if err != nil {
-			parseErrs = append(parseErrs, err)
-			continue
-		}
-		apps = append(apps, *app)
-	}
-
-	if len(parseErrs) > 0 {
-		return apps, fmt.Errorf("failed to parse %d application(s): %w", len(parseErrs), errors.Join(parseErrs...))
-	}
 	return apps, nil
 }
 
@@ -487,18 +475,9 @@ func (a *Adapter) ListRoles(ctx context.Context) ([]models.Role, error) {
 		return nil, err
 	}
 
-	var rolesData []json.RawMessage
-	if err := json.Unmarshal(body, &rolesData); err != nil {
-		return nil, fmt.Errorf("unmarshal roles list: %w", err)
-	}
-
-	roles := make([]models.Role, 0, len(rolesData))
-	for _, roleData := range rolesData {
-		role, err := parseRoleResponse(roleData)
-		if err != nil {
-			return nil, err
-		}
-		roles = append(roles, *role)
+	var roles []models.Role
+	if err := json.Unmarshal(body, &roles); err != nil {
+		return nil, fmt.Errorf("unmarshal roles: %w", err)
 	}
 
 	return roles, nil
@@ -572,18 +551,9 @@ func (a *Adapter) ListRoleScopes(ctx context.Context, roleID string) ([]models.A
 		return nil, err
 	}
 
-	var scopesData []json.RawMessage
-	if err := json.Unmarshal(body, &scopesData); err != nil {
-		return nil, fmt.Errorf("unmarshal role scopes response: %w", err)
-	}
-
-	scopes := make([]models.APIResourceScope, 0, len(scopesData))
-	for _, data := range scopesData {
-		scope, err := parseAPIResourceScopeResponse(data)
-		if err != nil {
-			return nil, err
-		}
-		scopes = append(scopes, *scope)
+	var scopes []models.APIResourceScope
+	if err := json.Unmarshal(body, &scopes); err != nil {
+		return nil, fmt.Errorf("unmarshal role scopes: %w", err)
 	}
 
 	return scopes, nil
@@ -610,8 +580,8 @@ func (a *Adapter) AssignRoleScopes(ctx context.Context, roleID string, scopeIDs 
 	return err
 }
 
-// RemoveRoleScope removes an API resource scope from a role
-func (a *Adapter) RemoveRoleScope(ctx context.Context, roleID, scopeID string) error {
+// RemoveScopeFromRole removes an API resource scope from a role
+func (a *Adapter) RemoveScopeFromRole(ctx context.Context, roleID, scopeID string) error {
 	if roleID == "" {
 		return &ValidationError{Field: "roleID", Message: "cannot be empty"}
 	}
@@ -643,18 +613,9 @@ func (a *Adapter) ListRoleUsers(ctx context.Context, roleID string) ([]models.Us
 		return nil, err
 	}
 
-	var usersData []json.RawMessage
-	if err := json.Unmarshal(body, &usersData); err != nil {
+	var users []models.User
+	if err := json.Unmarshal(body, &users); err != nil {
 		return nil, fmt.Errorf("unmarshal role users: %w", err)
-	}
-
-	users := make([]models.User, 0, len(usersData))
-	for _, userData := range usersData {
-		user, err := parseUserResponse(userData)
-		if err != nil {
-			return nil, err
-		}
-		users = append(users, *user)
 	}
 
 	return users, nil
@@ -714,18 +675,9 @@ func (a *Adapter) ListRoleApplications(ctx context.Context, roleID string) ([]mo
 		return nil, err
 	}
 
-	var appsData []json.RawMessage
-	if err := json.Unmarshal(body, &appsData); err != nil {
+	var apps []models.Application
+	if err := json.Unmarshal(body, &apps); err != nil {
 		return nil, fmt.Errorf("unmarshal role applications: %w", err)
-	}
-
-	apps := make([]models.Application, 0, len(appsData))
-	for _, appData := range appsData {
-		app, err := parseApplicationResponse(appData)
-		if err != nil {
-			return nil, err
-		}
-		apps = append(apps, *app)
 	}
 
 	return apps, nil
@@ -791,7 +743,7 @@ func (a *Adapter) CreateOrganizationInvitation(ctx context.Context, invitation m
 	payload := map[string]interface{}{
 		"organizationId": invitation.OrganizationID,
 		"invitee":        invitation.Invitee,
-		"expiresAt":      float64(invitation.ExpiresAt),
+		"expiresAt":      invitation.ExpiresAt.UnixMilli(),
 		"messagePayload": false, // We'll send our own emails
 	}
 
@@ -817,8 +769,6 @@ func (a *Adapter) CreateOrganizationInvitation(ctx context.Context, invitation m
 }
 
 // ListOrganizationInvitations lists invitations for an organization.
-// Returns invitations and any error. If some items failed to parse, returns partial results
-// with a combined error containing all parse failures.
 func (a *Adapter) ListOrganizationInvitations(ctx context.Context, orgID string) ([]models.OrganizationInvitation, error) {
 	if orgID == "" {
 		return nil, &ValidationError{Field: "orgID", Message: "cannot be empty"}
@@ -833,25 +783,11 @@ func (a *Adapter) ListOrganizationInvitations(ctx context.Context, orgID string)
 		return nil, err
 	}
 
-	var invitationsData []json.RawMessage
-	if err := json.Unmarshal(body, &invitationsData); err != nil {
-		return nil, fmt.Errorf("unmarshal invitations response: %w", err)
+	var invitations []models.OrganizationInvitation
+	if err := json.Unmarshal(body, &invitations); err != nil {
+		return nil, fmt.Errorf("unmarshal invitations: %w", err)
 	}
 
-	invitations := make([]models.OrganizationInvitation, 0, len(invitationsData))
-	var parseErrs []error
-	for _, data := range invitationsData {
-		inv, err := parseInvitationResponse(data)
-		if err != nil {
-			parseErrs = append(parseErrs, err)
-			continue
-		}
-		invitations = append(invitations, *inv)
-	}
-
-	if len(parseErrs) > 0 {
-		return invitations, fmt.Errorf("failed to parse %d invitation(s): %w", len(parseErrs), errors.Join(parseErrs...))
-	}
 	return invitations, nil
 }
 
@@ -892,6 +828,9 @@ func (a *Adapter) SendInvitationMessage(ctx context.Context, invitationID, magic
 	if invitationID == "" {
 		return &ValidationError{Field: "invitationID", Message: "cannot be empty"}
 	}
+	if magicLink == "" {
+		return &ValidationError{Field: "magicLink", Message: "cannot be empty"}
+	}
 
 	return a.doNoContent(ctx, requestConfig{
 		method:     http.MethodPost,
@@ -924,10 +863,7 @@ func (a *Adapter) CreateOneTimeToken(ctx context.Context, token models.OneTimeTo
 		}
 	}
 
-	var result struct {
-		Token     string `json:"token"`
-		ExpiresAt int64  `json:"expiresAt"`
-	}
+	var result models.OneTimeTokenResult
 	err := a.doJSON(ctx, requestConfig{
 		method:      http.MethodPost,
 		path:        "/api/one-time-tokens",
@@ -938,113 +874,37 @@ func (a *Adapter) CreateOneTimeToken(ctx context.Context, token models.OneTimeTo
 		return nil, err
 	}
 
-	return &models.OneTimeTokenResult{
-		Token:     result.Token,
-		ExpiresAt: result.ExpiresAt,
-	}, nil
+	return &result, nil
 }
 
 // Helper functions
 
 func parseInvitationResponse(data []byte) (*models.OrganizationInvitation, error) {
-	var raw struct {
-		ID                string `json:"id"`
-		TenantID          string `json:"tenantId"`
-		InviterID         string `json:"inviterId"`
-		Invitee           string `json:"invitee"`
-		AcceptedUserID    string `json:"acceptedUserId"`
-		OrganizationID    string `json:"organizationId"`
-		Status            string `json:"status"`
-		CreatedAt         int64  `json:"createdAt"`
-		UpdatedAt         int64  `json:"updatedAt"`
-		ExpiresAt         int64  `json:"expiresAt"`
-		OrganizationRoles []struct {
-			ID          string `json:"id"`
-			TenantID    string `json:"tenantId"`
-			Name        string `json:"name"`
-			Description string `json:"description"`
-		} `json:"organizationRoles"`
-	}
-
-	if err := json.Unmarshal(data, &raw); err != nil {
+	var inv models.OrganizationInvitation
+	if err := json.Unmarshal(data, &inv); err != nil {
 		return nil, fmt.Errorf("parse invitation: %w", err)
 	}
-
-	roles := make([]models.OrganizationRole, len(raw.OrganizationRoles))
-	for i, r := range raw.OrganizationRoles {
-		roles[i] = models.OrganizationRole{
-			ID:          r.ID,
-			TenantID:    r.TenantID,
-			Name:        r.Name,
-			Description: r.Description,
-		}
-	}
-
-	return &models.OrganizationInvitation{
-		ID:             raw.ID,
-		TenantID:       raw.TenantID,
-		OrganizationID: raw.OrganizationID,
-		Invitee:        raw.Invitee,
-		Status:         raw.Status,
-		InviterID:      raw.InviterID,
-		AcceptedUserID: raw.AcceptedUserID,
-		Roles:          roles,
-		ExpiresAt:      time.UnixMilli(raw.ExpiresAt),
-		CreatedAt:      time.UnixMilli(raw.CreatedAt),
-		UpdatedAt:      time.UnixMilli(raw.UpdatedAt),
-	}, nil
+	return &inv, nil
 }
 
 func parseApplicationResponse(data []byte) (*models.Application, error) {
-	var raw struct {
-		ID                   string                       `json:"id"`
-		TenantID             string                       `json:"tenantId"`
-		Name                 string                       `json:"name"`
-		Description          string                       `json:"description"`
-		Type                 string                       `json:"type"`
-		Secret               string                       `json:"secret"`
-		OIDCClientMetadata   *models.OIDCClientMetadata   `json:"oidcClientMetadata"`
-		CustomClientMetadata *models.CustomClientMetadata `json:"customClientMetadata"`
-		ProtectedAppMetadata *models.ProtectedAppMetadata `json:"protectedAppMetadata"`
-		CustomData           map[string]interface{}       `json:"customData"`
-		IsThirdParty         bool                         `json:"isThirdParty"`
-		IsAdmin              bool                         `json:"isAdmin"`
-		CreatedAt            int64                        `json:"createdAt"`
-	}
-
-	if err := json.Unmarshal(data, &raw); err != nil {
+	var app models.Application
+	if err := json.Unmarshal(data, &app); err != nil {
 		return nil, fmt.Errorf("parse application: %w", err)
 	}
-
-	customData := raw.CustomData
-	if customData == nil {
-		customData = make(map[string]interface{})
+	if app.CustomData == nil {
+		app.CustomData = make(map[string]interface{})
 	}
-
-	return &models.Application{
-		ID:                   raw.ID,
-		TenantID:             raw.TenantID,
-		Name:                 raw.Name,
-		Description:          raw.Description,
-		Type:                 models.ApplicationType(raw.Type),
-		Secret:               raw.Secret,
-		OIDCClientMetadata:   raw.OIDCClientMetadata,
-		CustomClientMetadata: raw.CustomClientMetadata,
-		ProtectedAppMetadata: raw.ProtectedAppMetadata,
-		CustomData:           customData,
-		IsThirdParty:         raw.IsThirdParty,
-		IsAdmin:              raw.IsAdmin,
-		CreatedAt:            time.UnixMilli(raw.CreatedAt),
-	}, nil
+	return &app, nil
 }
 
 // Iterator factory methods
 
 // ListUsersIter returns an iterator for paginating through users.
-func (a *Adapter) ListUsersIter(ctx context.Context, pageSize int) *UserIterator {
+// Use iter.Next(ctx) to iterate through results.
+func (a *Adapter) ListUsersIter(pageSize int) *UserIterator {
 	return &UserIterator{
 		adapter:  a,
-		ctx:      ctx,
 		pageSize: pageSize,
 		page:     0,
 		index:    -1,
@@ -1052,10 +912,10 @@ func (a *Adapter) ListUsersIter(ctx context.Context, pageSize int) *UserIterator
 }
 
 // ListOrganizationsIter returns an iterator for paginating through organizations.
-func (a *Adapter) ListOrganizationsIter(ctx context.Context, pageSize int) *OrganizationIterator {
+// Use iter.Next(ctx) to iterate through results.
+func (a *Adapter) ListOrganizationsIter(pageSize int) *OrganizationIterator {
 	return &OrganizationIterator{
 		adapter:  a,
-		ctx:      ctx,
 		pageSize: pageSize,
 		page:     0,
 		index:    -1,

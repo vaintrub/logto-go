@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/vaintrub/logto-go/client"
 	"github.com/vaintrub/logto-go/models"
 )
 
@@ -23,7 +24,7 @@ func TestOneTimeToken(t *testing.T) {
 	})
 	require.NoError(t, err, "CreateOneTimeToken should succeed")
 	assert.NotEmpty(t, result.Token)
-	assert.Greater(t, result.ExpiresAt, time.Now().UnixMilli())
+	assert.True(t, result.ExpiresAt.After(time.Now()), "ExpiresAt should be in the future")
 }
 
 // TestOneTimeTokenWithJITOrgs tests one-time token creation with JIT organization IDs
@@ -51,5 +52,18 @@ func TestOneTimeTokenWithJITOrgs(t *testing.T) {
 	})
 	require.NoError(t, err, "CreateOneTimeToken with JIT orgs should succeed")
 	assert.NotEmpty(t, result.Token)
-	assert.Greater(t, result.ExpiresAt, time.Now().UnixMilli())
+	assert.True(t, result.ExpiresAt.After(time.Now()), "ExpiresAt should be in the future")
+}
+
+// === Validation Tests ===
+
+// TestCreateOneTimeToken_Validation tests validation errors
+func TestCreateOneTimeToken_Validation(t *testing.T) {
+	ctx := context.Background()
+
+	_, err := testClient.CreateOneTimeToken(ctx, models.OneTimeTokenCreate{Email: ""})
+	require.Error(t, err, "CreateOneTimeToken with empty email should fail")
+	var validationErr *client.ValidationError
+	require.ErrorAs(t, err, &validationErr)
+	assert.Equal(t, "email", validationErr.Field)
 }

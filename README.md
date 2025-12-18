@@ -17,15 +17,14 @@ go get github.com/vaintrub/logto-go
 import (
     "context"
 
-    "github.com/vaintrub/logto-go/client"
-    "github.com/vaintrub/logto-go/models"
+    logto "github.com/vaintrub/logto-go"
 )
 
-c, err := client.New(
+c, err := logto.NewClient(
     "https://your-tenant.logto.app",
     "m2m-app-id",
     "m2m-app-secret",
-    client.WithResource("https://your-tenant.logto.app/api"),
+    logto.WithResource("https://your-tenant.logto.app/api"),
 )
 
 ctx := context.Background()
@@ -34,7 +33,7 @@ ctx := context.Background()
 user, err := c.GetUser(ctx, "user-id")
 
 // Create user
-newUser, err := c.CreateUser(ctx, models.UserCreate{
+newUser, err := c.CreateUser(ctx, logto.UserCreate{
     Username: "john",
     Password: "SecurePass123!",
 })
@@ -50,29 +49,48 @@ orgs, err := c.ListOrganizations(ctx)
 - Organization invitations
 - JWT validation with JWKS
 - Pagination iterators
-- Retry with exponential backoff
+- HTTP connection pooling with optimized defaults
 
 ## Configuration Options
 
 | Option | Description | Default |
 |--------|-------------|---------|
-| `client.WithTimeout(d)` | HTTP client timeout | 5s |
-| `client.WithHTTPClient(c)` | Custom HTTP client (overrides timeout) | - |
-| `client.WithLogger(l)` | slog.Logger for debug output | - |
-| `client.WithResource(url)` | M2M resource URL | - |
-| `client.WithScope(s)` | M2M scope | "all" |
+| `logto.WithTimeout(d)` | HTTP client timeout | 5s |
+| `logto.WithHTTPClient(c)` | Custom HTTP client (overrides timeout) | - |
+| `logto.WithResource(url)` | M2M resource URL | - |
+| `logto.WithScope(s)` | M2M scope | "all" |
 
 ## Error Handling
 
 ```go
-import "github.com/vaintrub/logto-go/client"
+import logto "github.com/vaintrub/logto-go"
 
-if errors.Is(err, client.ErrNotFound) {
+if errors.Is(err, logto.ErrNotFound) {
     // handle 404
 }
-if errors.Is(err, client.ErrRateLimited) {
+if errors.Is(err, logto.ErrRateLimited) {
     // handle 429
 }
+if errors.Is(err, logto.ErrUserNotFound) {
+    // user not found in search results
+    // also matches ErrNotFound
+}
+```
+
+## Pagination with Iterators
+
+```go
+iter := c.ListUsersIter(100) // page size
+for iter.Next(ctx) {
+    user := iter.User()
+    fmt.Println(user.ID, user.Username)
+}
+if err := iter.Err(); err != nil {
+    // handle error
+}
+
+// Or collect all at once
+users, err := c.ListUsersIter(100).Collect(ctx)
 ```
 
 ## JWT Validation

@@ -7,7 +7,9 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
+	"github.com/vaintrub/logto-go/client"
 	"github.com/vaintrub/logto-go/models"
 )
 
@@ -17,9 +19,9 @@ func TestIterators(t *testing.T) {
 
 	// Test UserIterator
 	t.Run("UserIterator", func(t *testing.T) {
-		iter := testClient.ListUsersIter(ctx, 10)
+		iter := testClient.ListUsersIter(10)
 		count := 0
-		for iter.Next() {
+		for iter.Next(ctx) {
 			user := iter.User()
 			assert.NotEmpty(t, user.ID)
 			count++
@@ -34,15 +36,25 @@ func TestIterators(t *testing.T) {
 	// Test OrganizationIterator
 	t.Run("OrganizationIterator", func(t *testing.T) {
 		// Create a few orgs first
+		var createdOrgIDs []string
 		for i := 0; i < 3; i++ {
-			_, _ = testClient.CreateOrganization(ctx, models.OrganizationCreate{
+			org, err := testClient.CreateOrganization(ctx, models.OrganizationCreate{
 				Name: fmt.Sprintf("Iter Org %d-%d", time.Now().UnixNano(), i),
 			})
+			require.NoError(t, err, "CreateOrganization should succeed")
+			createdOrgIDs = append(createdOrgIDs, org.ID)
 		}
+		t.Cleanup(func() {
+			for _, orgID := range createdOrgIDs {
+				if err := testClient.DeleteOrganization(context.Background(), orgID); err != nil {
+					t.Logf("cleanup: failed to delete organization %s: %v", orgID, err)
+				}
+			}
+		})
 
-		iter := testClient.ListOrganizationsIter(ctx, 10)
+		iter := testClient.ListOrganizationsIter(10)
 		count := 0
-		for iter.Next() {
+		for iter.Next(ctx) {
 			org := iter.Organization()
 			assert.NotEmpty(t, org.ID)
 			count++
@@ -58,17 +70,26 @@ func TestValidationErrors(t *testing.T) {
 
 	// Empty userID should fail
 	_, err := testClient.GetUser(ctx, "")
-	assert.Error(t, err, "GetUser with empty ID should fail")
+	require.Error(t, err, "GetUser with empty ID should fail")
+	var validationErr *client.ValidationError
+	require.ErrorAs(t, err, &validationErr)
+	assert.Equal(t, "userID", validationErr.Field)
 
 	// Empty orgID should fail
 	_, err = testClient.GetOrganization(ctx, "")
-	assert.Error(t, err, "GetOrganization with empty ID should fail")
+	require.Error(t, err, "GetOrganization with empty ID should fail")
+	require.ErrorAs(t, err, &validationErr)
+	assert.Equal(t, "orgID", validationErr.Field)
 
 	// Empty name should fail
 	_, err = testClient.CreateOrganization(ctx, models.OrganizationCreate{})
-	assert.Error(t, err, "CreateOrganization with empty name should fail")
+	require.Error(t, err, "CreateOrganization with empty name should fail")
+	require.ErrorAs(t, err, &validationErr)
+	assert.Equal(t, "name", validationErr.Field)
 
 	// Empty username should fail
 	_, err = testClient.CreateUser(ctx, models.UserCreate{Password: "password"})
-	assert.Error(t, err, "CreateUser with empty username should fail")
+	require.Error(t, err, "CreateUser with empty username should fail")
+	require.ErrorAs(t, err, &validationErr)
+	assert.Equal(t, "username", validationErr.Field)
 }

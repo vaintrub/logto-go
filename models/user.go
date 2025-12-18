@@ -1,8 +1,6 @@
 // Package models contains data types for the Logto client.
 package models
 
-import "time"
-
 // UserIdentity represents a user's identity from a social/enterprise provider.
 type UserIdentity struct {
 	UserID  string                 `json:"userId"`
@@ -43,8 +41,8 @@ type SSOIdentity struct {
 	Issuer     string                 `json:"issuer"`
 	IdentityID string                 `json:"identityId"`
 	Detail     map[string]interface{} `json:"detail"`
-	CreatedAt  time.Time              `json:"createdAt"`
-	SSOCONNID  string                 `json:"ssoConnectorId"`
+	CreatedAt  UnixMilliTime          `json:"createdAt"`
+	SSOConnectorID string              `json:"ssoConnectorId"`
 }
 
 // User represents user data from Logto.
@@ -58,9 +56,9 @@ type User struct {
 	Avatar                 string                   `json:"avatar"`
 	CustomData             map[string]interface{}   `json:"customData"`
 	Identities             map[string]UserIdentity  `json:"identities"`
-	LastSignInAt           *time.Time               `json:"lastSignInAt"`
-	CreatedAt              time.Time                `json:"createdAt"`
-	UpdatedAt              time.Time                `json:"updatedAt"`
+	LastSignInAt           *UnixMilliTime           `json:"lastSignInAt"`
+	CreatedAt              UnixMilliTime            `json:"createdAt"`
+	UpdatedAt              UnixMilliTime            `json:"updatedAt"`
 	Profile                *UserProfile             `json:"profile"`
 	ApplicationID          string                   `json:"applicationId"`
 	IsSuspended            bool                     `json:"isSuspended"`

@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/vaintrub/logto-go/client"
 	"github.com/vaintrub/logto-go/models"
 )
 
@@ -142,8 +143,8 @@ func TestRoleScopes(t *testing.T) {
 	assert.Len(t, scopes, 2)
 
 	// Remove scope from role
-	err = testClient.RemoveRoleScope(ctx, roleID, scopeID)
-	require.NoError(t, err, "RemoveRoleScope should succeed")
+	err = testClient.RemoveScopeFromRole(ctx, roleID, scopeID)
+	require.NoError(t, err, "RemoveScopeFromRole should succeed")
 
 	// Verify removal
 	scopes, err = testClient.ListRoleScopes(ctx, roleID)
@@ -322,4 +323,210 @@ func TestCreateRoleWithScopes(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, scopes, 1)
 	assert.Equal(t, scopeID, scopes[0].ID)
+}
+
+// === Validation Tests ===
+
+// TestGetRole_Validation tests validation errors
+func TestGetRole_Validation(t *testing.T) {
+	ctx := context.Background()
+
+	_, err := testClient.GetRole(ctx, "")
+	require.Error(t, err, "GetRole with empty roleID should fail")
+	var validationErr *client.ValidationError
+	require.ErrorAs(t, err, &validationErr)
+	assert.Equal(t, "roleID", validationErr.Field)
+}
+
+// TestUpdateRole_Validation tests validation errors
+func TestUpdateRole_Validation(t *testing.T) {
+	ctx := context.Background()
+
+	name := "test"
+	_, err := testClient.UpdateRole(ctx, "", models.RoleUpdate{Name: &name})
+	require.Error(t, err, "UpdateRole with empty roleID should fail")
+	var validationErr *client.ValidationError
+	require.ErrorAs(t, err, &validationErr)
+	assert.Equal(t, "roleID", validationErr.Field)
+}
+
+// TestDeleteRole_Validation tests validation errors
+func TestDeleteRole_Validation(t *testing.T) {
+	ctx := context.Background()
+
+	err := testClient.DeleteRole(ctx, "")
+	require.Error(t, err, "DeleteRole with empty roleID should fail")
+	var validationErr *client.ValidationError
+	require.ErrorAs(t, err, &validationErr)
+	assert.Equal(t, "roleID", validationErr.Field)
+}
+
+// TestCreateRole_Validation tests validation errors
+func TestCreateRole_Validation(t *testing.T) {
+	ctx := context.Background()
+
+	_, err := testClient.CreateRole(ctx, models.RoleCreate{Name: ""})
+	require.Error(t, err, "CreateRole with empty name should fail")
+	var validationErr *client.ValidationError
+	require.ErrorAs(t, err, &validationErr)
+	assert.Equal(t, "name", validationErr.Field)
+}
+
+// TestListRoleScopes_Validation tests validation errors
+func TestListRoleScopes_Validation(t *testing.T) {
+	ctx := context.Background()
+
+	_, err := testClient.ListRoleScopes(ctx, "")
+	require.Error(t, err, "ListRoleScopes with empty roleID should fail")
+	var validationErr *client.ValidationError
+	require.ErrorAs(t, err, &validationErr)
+	assert.Equal(t, "roleID", validationErr.Field)
+}
+
+// TestAssignRoleScopes_Validation tests validation errors
+func TestAssignRoleScopes_Validation(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("empty roleID", func(t *testing.T) {
+		err := testClient.AssignRoleScopes(ctx, "", []string{"scope-1"})
+		require.Error(t, err, "AssignRoleScopes with empty roleID should fail")
+		var validationErr *client.ValidationError
+		require.ErrorAs(t, err, &validationErr)
+		assert.Equal(t, "roleID", validationErr.Field)
+	})
+
+	t.Run("empty scopeIDs", func(t *testing.T) {
+		err := testClient.AssignRoleScopes(ctx, "role-123", []string{})
+		require.Error(t, err, "AssignRoleScopes with empty scopeIDs should fail")
+		var validationErr *client.ValidationError
+		require.ErrorAs(t, err, &validationErr)
+		assert.Equal(t, "scopeIDs", validationErr.Field)
+	})
+}
+
+// TestRemoveScopeFromRole_Validation tests validation errors
+func TestRemoveScopeFromRole_Validation(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("empty roleID", func(t *testing.T) {
+		err := testClient.RemoveScopeFromRole(ctx, "", "scope-123")
+		require.Error(t, err, "RemoveScopeFromRole with empty roleID should fail")
+		var validationErr *client.ValidationError
+		require.ErrorAs(t, err, &validationErr)
+		assert.Equal(t, "roleID", validationErr.Field)
+	})
+
+	t.Run("empty scopeID", func(t *testing.T) {
+		err := testClient.RemoveScopeFromRole(ctx, "role-123", "")
+		require.Error(t, err, "RemoveScopeFromRole with empty scopeID should fail")
+		var validationErr *client.ValidationError
+		require.ErrorAs(t, err, &validationErr)
+		assert.Equal(t, "scopeID", validationErr.Field)
+	})
+}
+
+// TestListRoleUsers_Validation tests validation errors
+func TestListRoleUsers_Validation(t *testing.T) {
+	ctx := context.Background()
+
+	_, err := testClient.ListRoleUsers(ctx, "")
+	require.Error(t, err, "ListRoleUsers with empty roleID should fail")
+	var validationErr *client.ValidationError
+	require.ErrorAs(t, err, &validationErr)
+	assert.Equal(t, "roleID", validationErr.Field)
+}
+
+// TestAssignRoleToUsers_Validation tests validation errors
+func TestAssignRoleToUsers_Validation(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("empty roleID", func(t *testing.T) {
+		err := testClient.AssignRoleToUsers(ctx, "", []string{"user-1"})
+		require.Error(t, err, "AssignRoleToUsers with empty roleID should fail")
+		var validationErr *client.ValidationError
+		require.ErrorAs(t, err, &validationErr)
+		assert.Equal(t, "roleID", validationErr.Field)
+	})
+
+	t.Run("empty userIDs", func(t *testing.T) {
+		err := testClient.AssignRoleToUsers(ctx, "role-123", []string{})
+		require.Error(t, err, "AssignRoleToUsers with empty userIDs should fail")
+		var validationErr *client.ValidationError
+		require.ErrorAs(t, err, &validationErr)
+		assert.Equal(t, "userIDs", validationErr.Field)
+	})
+}
+
+// TestRemoveRoleFromUser_Validation tests validation errors
+func TestRemoveRoleFromUser_Validation(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("empty roleID", func(t *testing.T) {
+		err := testClient.RemoveRoleFromUser(ctx, "", "user-123")
+		require.Error(t, err, "RemoveRoleFromUser with empty roleID should fail")
+		var validationErr *client.ValidationError
+		require.ErrorAs(t, err, &validationErr)
+		assert.Equal(t, "roleID", validationErr.Field)
+	})
+
+	t.Run("empty userID", func(t *testing.T) {
+		err := testClient.RemoveRoleFromUser(ctx, "role-123", "")
+		require.Error(t, err, "RemoveRoleFromUser with empty userID should fail")
+		var validationErr *client.ValidationError
+		require.ErrorAs(t, err, &validationErr)
+		assert.Equal(t, "userID", validationErr.Field)
+	})
+}
+
+// TestListRoleApplications_Validation tests validation errors
+func TestListRoleApplications_Validation(t *testing.T) {
+	ctx := context.Background()
+
+	_, err := testClient.ListRoleApplications(ctx, "")
+	require.Error(t, err, "ListRoleApplications with empty roleID should fail")
+	var validationErr *client.ValidationError
+	require.ErrorAs(t, err, &validationErr)
+	assert.Equal(t, "roleID", validationErr.Field)
+}
+
+// TestAssignRoleToApplications_Validation tests validation errors
+func TestAssignRoleToApplications_Validation(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("empty roleID", func(t *testing.T) {
+		err := testClient.AssignRoleToApplications(ctx, "", []string{"app-1"})
+		require.Error(t, err, "AssignRoleToApplications with empty roleID should fail")
+		var validationErr *client.ValidationError
+		require.ErrorAs(t, err, &validationErr)
+		assert.Equal(t, "roleID", validationErr.Field)
+	})
+
+	t.Run("empty applicationIDs", func(t *testing.T) {
+		err := testClient.AssignRoleToApplications(ctx, "role-123", []string{})
+		require.Error(t, err, "AssignRoleToApplications with empty applicationIDs should fail")
+		var validationErr *client.ValidationError
+		require.ErrorAs(t, err, &validationErr)
+		assert.Equal(t, "applicationIDs", validationErr.Field)
+	})
+}
+
+// TestRemoveRoleFromApplication_Validation tests validation errors
+func TestRemoveRoleFromApplication_Validation(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("empty roleID", func(t *testing.T) {
+		err := testClient.RemoveRoleFromApplication(ctx, "", "app-123")
+		require.Error(t, err, "RemoveRoleFromApplication with empty roleID should fail")
+		var validationErr *client.ValidationError
+		require.ErrorAs(t, err, &validationErr)
+		assert.Equal(t, "roleID", validationErr.Field)
+	})
+
+	t.Run("empty applicationID", func(t *testing.T) {
+		err := testClient.RemoveRoleFromApplication(ctx, "role-123", "")
+		require.Error(t, err, "RemoveRoleFromApplication with empty applicationID should fail")
+		var validationErr *client.ValidationError
+		require.ErrorAs(t, err, &validationErr)
+		assert.Equal(t, "applicationID", validationErr.Field)
+	})
 }
