@@ -128,8 +128,8 @@ func TestRoleScopeOperations(t *testing.T) {
 	assert.Equal(t, scopeID, role.Scopes[0].ID)
 
 	// Remove scope from role
-	err = testClient.RemoveOrganizationRoleScope(ctx, roleID, scopeID)
-	require.NoError(t, err, "RemoveOrganizationRoleScope should succeed")
+	err = testClient.RemoveScopeFromOrganizationRole(ctx, roleID, scopeID)
+	require.NoError(t, err, "RemoveScopeFromOrganizationRole should succeed")
 
 	// Verify removal
 	role, err = testClient.GetOrganizationRole(ctx, roleID)
@@ -336,21 +336,21 @@ func TestAddOrganizationRoleScopes_Validation(t *testing.T) {
 	})
 }
 
-// TestRemoveOrganizationRoleScope_Validation tests validation errors
-func TestRemoveOrganizationRoleScope_Validation(t *testing.T) {
+// TestRemoveScopeFromOrganizationRole_Validation tests validation errors
+func TestRemoveScopeFromOrganizationRole_Validation(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("empty roleID", func(t *testing.T) {
-		err := testClient.RemoveOrganizationRoleScope(ctx, "", "scope-123")
-		require.Error(t, err, "RemoveOrganizationRoleScope with empty roleID should fail")
+		err := testClient.RemoveScopeFromOrganizationRole(ctx, "", "scope-123")
+		require.Error(t, err, "RemoveScopeFromOrganizationRole with empty roleID should fail")
 		var validationErr *client.ValidationError
 		require.ErrorAs(t, err, &validationErr)
 		assert.Equal(t, "roleID", validationErr.Field)
 	})
 
 	t.Run("empty scopeID", func(t *testing.T) {
-		err := testClient.RemoveOrganizationRoleScope(ctx, "role-123", "")
-		require.Error(t, err, "RemoveOrganizationRoleScope with empty scopeID should fail")
+		err := testClient.RemoveScopeFromOrganizationRole(ctx, "role-123", "")
+		require.Error(t, err, "RemoveScopeFromOrganizationRole with empty scopeID should fail")
 		var validationErr *client.ValidationError
 		require.ErrorAs(t, err, &validationErr)
 		assert.Equal(t, "scopeID", validationErr.Field)

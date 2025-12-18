@@ -49,6 +49,71 @@ func (c *Claims) HasAudience(audience string) bool {
 	return false
 }
 
+// parseAudienceFromAny parses JWT audience claim from map[string]any value.
+// Per JWT spec (RFC 7519), audience can be a single string or array of strings.
+func parseAudienceFromAny(v any) []string {
+	switch aud := v.(type) {
+	case string:
+		return []string{aud}
+	case []any:
+		result := make([]string, 0, len(aud))
+		for _, a := range aud {
+			if s, ok := a.(string); ok {
+				result = append(result, s)
+			}
+		}
+		return result
+	case []string:
+		return aud
+	}
+	return nil
+}
+
+// claimsFromMap extracts Claims from a raw map without re-marshaling.
+// This is more efficient than unmarshaling JSON twice.
+func claimsFromMap(m map[string]any) Claims {
+	c := Claims{}
+
+	// String fields
+	if v, ok := m["iss"].(string); ok {
+		c.Issuer = v
+	}
+	if v, ok := m["sub"].(string); ok {
+		c.Subject = v
+	}
+	if v, ok := m["jti"].(string); ok {
+		c.ID = v
+	}
+	if v, ok := m["client_id"].(string); ok {
+		c.ClientID = v
+	}
+	if v, ok := m["organization_id"].(string); ok {
+		c.OrganizationID = v
+	}
+	if v, ok := m["scope"].(string); ok {
+		c.Scope = v
+	}
+
+	// Time fields (stored as float64 in JSON)
+	if v, ok := m["exp"].(float64); ok {
+		t := time.Unix(int64(v), 0)
+		c.ExpiresAt = &t
+	}
+	if v, ok := m["nbf"].(float64); ok {
+		t := time.Unix(int64(v), 0)
+		c.NotBefore = &t
+	}
+	if v, ok := m["iat"].(float64); ok {
+		t := time.Unix(int64(v), 0)
+		c.IssuedAt = &t
+	}
+
+	// Audience - can be string or []any (JSON arrays become []any)
+	c.Audience = parseAudienceFromAny(m["aud"])
+
+	return c
+}
+
 // UnmarshalJSON implements custom JSON unmarshaling to handle:
 // - Unix timestamps for time fields (exp, nbf, iat)
 // - Audience as either string or array of strings

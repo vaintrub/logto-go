@@ -166,8 +166,8 @@ func (a *Adapter) AddOrganizationRoleScopes(ctx context.Context, roleID string, 
 	})
 }
 
-// RemoveOrganizationRoleScope removes a scope from an organization role
-func (a *Adapter) RemoveOrganizationRoleScope(ctx context.Context, roleID, scopeID string) error {
+// RemoveScopeFromOrganizationRole removes a scope from an organization role
+func (a *Adapter) RemoveScopeFromOrganizationRole(ctx context.Context, roleID, scopeID string) error {
 	if roleID == "" {
 		return &ValidationError{Field: "roleID", Message: "cannot be empty"}
 	}

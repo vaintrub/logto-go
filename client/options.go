@@ -1,7 +1,6 @@
 package client
 
 import (
-	"log/slog"
 	"net/http"
 	"time"
 )
@@ -24,7 +23,6 @@ type Option func(*options)
 type options struct {
 	timeout    time.Duration // HTTP client timeout (default: 5s)
 	httpClient *http.Client  // Custom HTTP client (overrides timeout if set)
-	logger     *slog.Logger  // Optional structured logger
 	resource   string        // M2M resource URL (default: https://default.logto.app/api)
 	scope      string        // M2M scope (default: all)
 }
@@ -39,25 +37,24 @@ func defaultOptions() *options {
 }
 
 // WithTimeout sets the HTTP client timeout.
+// Values <= 0 are ignored (default is used).
 // Default: 5s
 func WithTimeout(d time.Duration) Option {
 	return func(o *options) {
-		o.timeout = d
+		if d > 0 {
+			o.timeout = d
+		}
 	}
 }
 
 // WithHTTPClient sets a custom HTTP client.
 // When set, this overrides the timeout option.
+// Nil values are ignored.
 func WithHTTPClient(c *http.Client) Option {
 	return func(o *options) {
-		o.httpClient = c
-	}
-}
-
-// WithLogger sets a structured logger for debug output.
-func WithLogger(l *slog.Logger) Option {
-	return func(o *options) {
-		o.logger = l
+		if c != nil {
+			o.httpClient = c
+		}
 	}
 }
 

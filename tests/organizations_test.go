@@ -141,9 +141,9 @@ func TestOrganizationsIter_Success(t *testing.T) {
 		}
 	})
 
-	iter := testClient.ListOrganizationsIter(ctx, 10)
+	iter := testClient.ListOrganizationsIter(10)
 	count := 0
-	for iter.Next() {
+	for iter.Next(ctx) {
 		org := iter.Organization()
 		assert.NotEmpty(t, org.ID)
 		count++

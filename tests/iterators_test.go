@@ -19,9 +19,9 @@ func TestIterators(t *testing.T) {
 
 	// Test UserIterator
 	t.Run("UserIterator", func(t *testing.T) {
-		iter := testClient.ListUsersIter(ctx, 10)
+		iter := testClient.ListUsersIter(10)
 		count := 0
-		for iter.Next() {
+		for iter.Next(ctx) {
 			user := iter.User()
 			assert.NotEmpty(t, user.ID)
 			count++
@@ -52,9 +52,9 @@ func TestIterators(t *testing.T) {
 			}
 		})
 
-		iter := testClient.ListOrganizationsIter(ctx, 10)
+		iter := testClient.ListOrganizationsIter(10)
 		count := 0
-		for iter.Next() {
+		for iter.Next(ctx) {
 			org := iter.Organization()
 			assert.NotEmpty(t, org.ID)
 			count++

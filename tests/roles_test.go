@@ -143,8 +143,8 @@ func TestRoleScopes(t *testing.T) {
 	assert.Len(t, scopes, 2)
 
 	// Remove scope from role
-	err = testClient.RemoveRoleScope(ctx, roleID, scopeID)
-	require.NoError(t, err, "RemoveRoleScope should succeed")
+	err = testClient.RemoveScopeFromRole(ctx, roleID, scopeID)
+	require.NoError(t, err, "RemoveScopeFromRole should succeed")
 
 	// Verify removal
 	scopes, err = testClient.ListRoleScopes(ctx, roleID)
@@ -404,21 +404,21 @@ func TestAssignRoleScopes_Validation(t *testing.T) {
 	})
 }
 
-// TestRemoveRoleScope_Validation tests validation errors
-func TestRemoveRoleScope_Validation(t *testing.T) {
+// TestRemoveScopeFromRole_Validation tests validation errors
+func TestRemoveScopeFromRole_Validation(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("empty roleID", func(t *testing.T) {
-		err := testClient.RemoveRoleScope(ctx, "", "scope-123")
-		require.Error(t, err, "RemoveRoleScope with empty roleID should fail")
+		err := testClient.RemoveScopeFromRole(ctx, "", "scope-123")
+		require.Error(t, err, "RemoveScopeFromRole with empty roleID should fail")
 		var validationErr *client.ValidationError
 		require.ErrorAs(t, err, &validationErr)
 		assert.Equal(t, "roleID", validationErr.Field)
 	})
 
 	t.Run("empty scopeID", func(t *testing.T) {
-		err := testClient.RemoveRoleScope(ctx, "role-123", "")
-		require.Error(t, err, "RemoveRoleScope with empty scopeID should fail")
+		err := testClient.RemoveScopeFromRole(ctx, "role-123", "")
+		require.Error(t, err, "RemoveScopeFromRole with empty scopeID should fail")
 		var validationErr *client.ValidationError
 		require.ErrorAs(t, err, &validationErr)
 		assert.Equal(t, "scopeID", validationErr.Field)

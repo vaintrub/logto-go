@@ -129,17 +129,14 @@ func (v *JWKSValidator) ValidateToken(ctx context.Context, tokenString string) (
 		return nil, fmt.Errorf("%w: %w", ErrInvalidSignature, err)
 	}
 
-	// Parse claims from payload
-	var claims Claims
-	if err := json.Unmarshal(payload, &claims); err != nil {
+	// Parse claims from payload (single unmarshal for efficiency)
+	var rawClaims map[string]any
+	if err := json.Unmarshal(payload, &rawClaims); err != nil {
 		return nil, fmt.Errorf("failed to parse claims: %w", err)
 	}
 
-	// Parse raw claims for custom claim access
-	var rawClaims map[string]any
-	if err := json.Unmarshal(payload, &rawClaims); err != nil {
-		return nil, fmt.Errorf("failed to parse raw claims: %w", err)
-	}
+	// Extract typed claims from raw map (avoids double unmarshal)
+	claims := claimsFromMap(rawClaims)
 
 	// Validate issuer
 	if claims.Issuer != v.issuer {
@@ -206,7 +203,9 @@ func (v *JWKSValidator) refreshKeys(ctx context.Context) error {
 		return fmt.Errorf("JWKS endpoint returned status %d", resp.StatusCode)
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	// Limit response size to prevent DoS (JWKS should be small, 1MB is generous)
+	const maxJWKSSize = 1024 * 1024 // 1MB
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxJWKSSize))
 	if err != nil {
 		return err
 	}

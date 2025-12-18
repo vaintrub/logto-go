@@ -39,7 +39,8 @@ var (
 	ErrInvalidInput = errors.New("invalid input")
 
 	// ErrUserNotFound indicates no user was found matching the search criteria.
-	ErrUserNotFound = errors.New("user not found")
+	// This wraps ErrNotFound so errors.Is(err, ErrNotFound) returns true.
+	ErrUserNotFound = fmt.Errorf("user: %w", ErrNotFound)
 )
 
 // APIError represents an error response from the Logto API.

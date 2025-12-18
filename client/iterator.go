@@ -7,9 +7,9 @@ import (
 )
 
 // UserIterator provides pagination for listing users.
+// Use Next(ctx) to iterate through results.
 type UserIterator struct {
 	adapter  *Adapter
-	ctx      context.Context
 	pageSize int
 	page     int
 	users    []models.User
@@ -19,7 +19,8 @@ type UserIterator struct {
 }
 
 // Next advances the iterator to the next user.
-func (it *UserIterator) Next() bool {
+// The context is used for the API call to fetch the next page.
+func (it *UserIterator) Next(ctx context.Context) bool {
 	if it.err != nil || it.done {
 		return false
 	}
@@ -30,7 +31,7 @@ func (it *UserIterator) Next() bool {
 	}
 
 	it.page++
-	users, err := it.adapter.listUsersPaginated(it.ctx, it.page, it.pageSize)
+	users, err := it.adapter.listUsersPaginated(ctx, it.page, it.pageSize)
 	if err != nil {
 		it.err = err
 		return false
@@ -60,18 +61,19 @@ func (it *UserIterator) Err() error {
 }
 
 // Collect fetches all remaining users and returns them as a slice.
-func (it *UserIterator) Collect() ([]models.User, error) {
-	var all []models.User
-	for it.Next() {
+// Pre-allocates memory for better performance.
+func (it *UserIterator) Collect(ctx context.Context) ([]models.User, error) {
+	all := make([]models.User, 0, it.pageSize*2)
+	for it.Next(ctx) {
 		all = append(all, *it.User())
 	}
 	return all, it.Err()
 }
 
 // OrganizationIterator provides pagination for listing organizations.
+// Use Next(ctx) to iterate through results.
 type OrganizationIterator struct {
 	adapter       *Adapter
-	ctx           context.Context
 	pageSize      int
 	page          int
 	organizations []models.Organization
@@ -81,7 +83,8 @@ type OrganizationIterator struct {
 }
 
 // Next advances the iterator to the next organization.
-func (it *OrganizationIterator) Next() bool {
+// The context is used for the API call to fetch the next page.
+func (it *OrganizationIterator) Next(ctx context.Context) bool {
 	if it.err != nil || it.done {
 		return false
 	}
@@ -92,7 +95,7 @@ func (it *OrganizationIterator) Next() bool {
 	}
 
 	it.page++
-	orgs, err := it.adapter.listOrganizationsPaginated(it.ctx, it.page, it.pageSize)
+	orgs, err := it.adapter.listOrganizationsPaginated(ctx, it.page, it.pageSize)
 	if err != nil {
 		it.err = err
 		return false
@@ -122,9 +125,10 @@ func (it *OrganizationIterator) Err() error {
 }
 
 // Collect fetches all remaining organizations and returns them as a slice.
-func (it *OrganizationIterator) Collect() ([]models.Organization, error) {
-	var all []models.Organization
-	for it.Next() {
+// Pre-allocates memory for better performance.
+func (it *OrganizationIterator) Collect(ctx context.Context) ([]models.Organization, error) {
+	all := make([]models.Organization, 0, it.pageSize*2)
+	for it.Next(ctx) {
 		all = append(all, *it.Organization())
 	}
 	return all, it.Err()
