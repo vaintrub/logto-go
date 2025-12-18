@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/vaintrub/logto-go/compare/v1.0.6...v1.1.0) (2025-12-18)
+
+
+### Features
+
+* added GetUserScopesInOrganization handler ([fdfa953](https://github.com/vaintrub/logto-go/commit/fdfa9537a4edead8ba3dc2b8bc8abd926f2111d5))
+
 ## [1.0.6](https://github.com/vaintrub/logto-go/compare/v1.0.5...v1.0.6) (2025-12-17)
 
 
