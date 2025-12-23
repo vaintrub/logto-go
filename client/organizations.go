@@ -46,8 +46,9 @@ func (a *Adapter) ListOrganizations(ctx context.Context) ([]models.Organization,
 	return orgs, nil
 }
 
-// ListUserOrganizations retrieves organizations where the user is a member.
-func (a *Adapter) ListUserOrganizations(ctx context.Context, userID string) ([]models.Organization, error) {
+// ListUserOrganizations retrieves organizations where the user is a member,
+// including the user's roles in each organization.
+func (a *Adapter) ListUserOrganizations(ctx context.Context, userID string) ([]models.UserOrganization, error) {
 	if userID == "" {
 		return nil, &ValidationError{Field: "userID", Message: "cannot be empty"}
 	}
@@ -61,7 +62,7 @@ func (a *Adapter) ListUserOrganizations(ctx context.Context, userID string) ([]m
 		return nil, err
 	}
 
-	var orgs []models.Organization
+	var orgs []models.UserOrganization
 	if err := json.Unmarshal(body, &orgs); err != nil {
 		return nil, fmt.Errorf("unmarshal user organizations: %w", err)
 	}

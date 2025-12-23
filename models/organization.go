@@ -22,6 +22,13 @@ type Organization struct {
 	CreatedAt     UnixMilliTime          `json:"createdAt"`
 }
 
+// UserOrganization represents an organization with the user's roles in it.
+// Returned by GET /api/users/{userId}/organizations endpoint.
+type UserOrganization struct {
+	Organization
+	OrganizationRoles []OrganizationRole `json:"organizationRoles"`
+}
+
 // OrganizationMember represents a member in an organization with their roles.
 type OrganizationMember struct {
 	User  *User

@@ -183,6 +183,29 @@ func (a *Adapter) RemoveScopeFromOrganizationRole(ctx context.Context, roleID, s
 	})
 }
 
+// GetOrganizationRoleResourceScopes retrieves API resource scopes assigned to an organization role.
+func (a *Adapter) GetOrganizationRoleResourceScopes(ctx context.Context, roleID string) ([]models.APIResourceScope, error) {
+	if roleID == "" {
+		return nil, &ValidationError{Field: "roleID", Message: "cannot be empty"}
+	}
+
+	body, _, err := a.doRequest(ctx, requestConfig{
+		method:     http.MethodGet,
+		path:       "/api/organization-roles/%s/resource-scopes",
+		pathParams: []string{roleID},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	var scopes []models.APIResourceScope
+	if err := json.Unmarshal(body, &scopes); err != nil {
+		return nil, fmt.Errorf("unmarshal organization role resource scopes: %w", err)
+	}
+
+	return scopes, nil
+}
+
 // AssignResourceScopesToOrganizationRole assigns API resource scopes to an organization role
 func (a *Adapter) AssignResourceScopesToOrganizationRole(ctx context.Context, roleID string, scopeIDs []string) error {
 	if roleID == "" {

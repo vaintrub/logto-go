@@ -69,6 +69,8 @@ type (
 	OrganizationUpdate = models.OrganizationUpdate
 	// OrganizationMember represents a member of an organization.
 	OrganizationMember = models.OrganizationMember
+	// UserOrganization represents an organization with the user's roles.
+	UserOrganization = models.UserOrganization
 
 	// OrganizationRole represents a role within an organization.
 	OrganizationRole = models.OrganizationRole
