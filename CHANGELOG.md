@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.1.1](https://github.com/vaintrub/logto-go/compare/v1.1.0...v1.1.1) (2025-12-23)
+
+
+### Features
+
+* added handler for resource api scopes ([f9d7a76](https://github.com/vaintrub/logto-go/commit/f9d7a767509d674257bda3804725e9d6a5bb183b))
+* added handler for resource api scopes ([7749454](https://github.com/vaintrub/logto-go/commit/77494547ef8c568c100989a8f5b92065b435e11e))
+
+
+### Miscellaneous Chores
+
+* release 1.1.1 ([db65d4b](https://github.com/vaintrub/logto-go/commit/db65d4ba203f0ccc69b491bdc1c04dcffcc35946))
+
 ## [1.1.0](https://github.com/vaintrub/logto-go/compare/v1.0.6...v1.1.0) (2025-12-18)
 
 
