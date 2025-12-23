@@ -693,6 +693,10 @@ func TestCRUDValidation_EmptyIDs(t *testing.T) {
 			_, err := adapter.ListAPIResourceScopes(context.Background(), "")
 			return err
 		}, "resourceID"},
+		{"GetOrganizationRoleResourceScopes empty roleID", func() error {
+			_, err := adapter.GetOrganizationRoleResourceScopes(context.Background(), "")
+			return err
+		}, "roleID"},
 	}
 
 	for _, tt := range tests {

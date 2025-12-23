@@ -42,7 +42,7 @@ type Client interface {
 	GetOrganization(ctx context.Context, orgID string) (*models.Organization, error)
 	ListOrganizations(ctx context.Context) ([]models.Organization, error)
 	ListOrganizationsIter(pageSize int) *OrganizationIterator
-	ListUserOrganizations(ctx context.Context, userID string) ([]models.Organization, error)
+	ListUserOrganizations(ctx context.Context, userID string) ([]models.UserOrganization, error)
 	CreateOrganization(ctx context.Context, org models.OrganizationCreate) (*models.Organization, error)
 	UpdateOrganization(ctx context.Context, orgID string, update models.OrganizationUpdate) (*models.Organization, error)
 	DeleteOrganization(ctx context.Context, orgID string) error
@@ -78,7 +78,8 @@ type Client interface {
 	AddOrganizationRoleScopes(ctx context.Context, roleID string, scopeIDs []string) error
 	RemoveScopeFromOrganizationRole(ctx context.Context, roleID, scopeID string) error
 
-	// Organization Role Resource Scopes (POST /organization-roles/{id}/resource-scopes)
+	// Organization Role Resource Scopes (GET/POST /organization-roles/{id}/resource-scopes)
+	GetOrganizationRoleResourceScopes(ctx context.Context, roleID string) ([]models.APIResourceScope, error)
 	AssignResourceScopesToOrganizationRole(ctx context.Context, roleID string, scopeIDs []string) error
 
 	// Organization Scopes (GET/POST/PATCH/DELETE /organization-scopes)
