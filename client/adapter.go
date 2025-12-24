@@ -252,6 +252,73 @@ func (a *Adapter) GetOrganizationToken(ctx context.Context, orgID string) (*Toke
 	return &result, nil
 }
 
+// GetResourceToken obtains an M2M token for a specific API resource.
+//
+// This method is used when your M2M application needs to access external APIs
+// that are registered as API Resources in Logto. The M2M app must have a role
+// with the required scopes for the target resource.
+//
+// IMPORTANT: This method does NOT cache tokens internally.
+// Caching is the responsibility of the calling code.
+// Use TokenResult.ExpiresAt for cache TTL calculations.
+//
+// Example usage:
+//
+//	token, err := client.GetResourceToken(ctx, "https://my-api.example.com", "read:data", "write:data")
+//	if err != nil {
+//	    return err
+//	}
+//	// Use token.AccessToken in Authorization header
+//	req.Header.Set("Authorization", "Bearer " + token.AccessToken)
+func (a *Adapter) GetResourceToken(ctx context.Context, resource string, scopes ...string) (*TokenResult, error) {
+	if resource == "" {
+		return nil, &ValidationError{Field: "resource", Message: "cannot be empty"}
+	}
+
+	tokenURL := fmt.Sprintf("%s/oidc/token", a.endpoint)
+
+	data := url.Values{}
+	data.Set("grant_type", "client_credentials")
+	data.Set("resource", resource)
+	if len(scopes) > 0 {
+		data.Set("scope", strings.Join(scopes, " "))
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", tokenURL, strings.NewReader(data.Encode()))
+	if err != nil {
+		return nil, err
+	}
+
+	// Use Basic Auth with cached M2M credentials
+	req.Header.Set("Authorization", "Basic "+a.cachedCredentials)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := a.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("resource token request failed: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read resource token response body: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		requestID := resp.Header.Get("X-Request-Id")
+		return nil, newAPIErrorFromResponse(resp.StatusCode, body, requestID)
+	}
+
+	var result TokenResult
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("unmarshal resource token response: %w", err)
+	}
+
+	// Compute ExpiresAt for convenient cache TTL calculation
+	result.ExpiresAt = time.Now().Add(time.Duration(result.ExpiresIn) * time.Second)
+
+	return &result, nil
+}
+
 // ListOrganizationApplications lists all applications in an organization
 func (a *Adapter) ListOrganizationApplications(ctx context.Context, orgID string) ([]models.Application, error) {
 	if orgID == "" {

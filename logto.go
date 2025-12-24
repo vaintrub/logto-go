@@ -48,6 +48,13 @@ type (
 
 	// Option configures the client.
 	Option = client.Option
+
+	// SubjectTokenResult represents the response from creating a subject token.
+	SubjectTokenResult = client.SubjectTokenResult
+	// SubjectTokenContext contains optional context for subject token creation.
+	SubjectTokenContext = client.SubjectTokenContext
+	// TokenExchangeOption configures token exchange behavior.
+	TokenExchangeOption = client.TokenExchangeOption
 )
 
 // Re-export model types for convenient access
@@ -239,4 +246,20 @@ func WithResource(resource string) Option {
 // Default: all
 func WithScope(scope string) Option {
 	return client.WithScope(scope)
+}
+
+// WithOrganizationID sets the organization context for the exchanged token.
+func WithOrganizationID(orgID string) TokenExchangeOption {
+	return client.WithOrganizationID(orgID)
+}
+
+// WithScopes sets the scopes for the exchanged token.
+func WithScopes(scopes ...string) TokenExchangeOption {
+	return client.WithScopes(scopes...)
+}
+
+// WithExchangeResource sets the resource (audience) for the exchanged token.
+// If not set, uses the default resource from client configuration.
+func WithExchangeResource(resource string) TokenExchangeOption {
+	return client.WithExchangeResource(resource)
 }

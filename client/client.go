@@ -22,6 +22,11 @@ type Client interface {
 	// IMPORTANT: This method does NOT cache tokens. Caching is the caller's responsibility.
 	// Use TokenResult.ExpiresAt for cache TTL calculations.
 	GetOrganizationToken(ctx context.Context, orgID string) (*TokenResult, error)
+	// GetResourceToken obtains an M2M token for a specific API resource.
+	// Use this to get tokens for external APIs registered in Logto.
+	// IMPORTANT: This method does NOT cache tokens. Caching is the caller's responsibility.
+	// Use TokenResult.ExpiresAt for cache TTL calculations.
+	GetResourceToken(ctx context.Context, resource string, scopes ...string) (*TokenResult, error)
 
 	// Users (GET /users, GET /users/{userId}, POST /users, PATCH /users/{userId}, DELETE /users/{userId})
 	GetUser(ctx context.Context, userID string) (*models.User, error)
@@ -142,6 +147,14 @@ type Client interface {
 
 	// One-Time Tokens (POST /api/one-time-tokens)
 	CreateOneTimeToken(ctx context.Context, token models.OneTimeTokenCreate) (*models.OneTimeTokenResult, error)
+
+	// Subject Tokens / User Impersonation (POST /api/subject-tokens, POST /oidc/token)
+	// CreateSubjectToken creates a subject token for user impersonation.
+	CreateSubjectToken(ctx context.Context, userID string, tokenCtx SubjectTokenContext) (*SubjectTokenResult, error)
+	// ExchangeSubjectToken exchanges a subject token for an access token (RFC 8693).
+	ExchangeSubjectToken(ctx context.Context, subjectToken string, opts ...TokenExchangeOption) (*TokenResult, error)
+	// GetUserAccessToken is a convenience method combining CreateSubjectToken and ExchangeSubjectToken.
+	GetUserAccessToken(ctx context.Context, userID string, opts ...TokenExchangeOption) (*TokenResult, error)
 }
 
 // m2mTokenCache holds cached M2M access tokens (internal use only)
