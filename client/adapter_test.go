@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -961,5 +962,221 @@ func TestVerifyCode_Validation(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// === GetResourceToken tests ===
+
+func TestGetResourceToken_Success(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/oidc/token" && r.Method == http.MethodPost {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"access_token": "resource-access-token",
+				"token_type":   "Bearer",
+				"expires_in":   3600,
+				"scope":        "read:data write:data",
+			})
+			return
+		}
+
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+
+	adapter := newTestAdapter(t, server.URL)
+	result, err := adapter.GetResourceToken(context.Background(), "https://api.example.com")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if result.AccessToken != "resource-access-token" {
+		t.Errorf("expected accessToken 'resource-access-token', got %q", result.AccessToken)
+	}
+	if result.ExpiresIn != 3600 {
+		t.Errorf("expected expiresIn 3600, got %d", result.ExpiresIn)
+	}
+}
+
+func TestGetResourceToken_WithScopes(t *testing.T) {
+	var capturedForm map[string]string
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/oidc/token" {
+			_ = r.ParseForm()
+			capturedForm = make(map[string]string)
+			for key := range r.PostForm {
+				capturedForm[key] = r.PostForm.Get(key)
+			}
+
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"access_token": "test-token",
+				"expires_in":   3600,
+			})
+			return
+		}
+
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+
+	adapter := newTestAdapter(t, server.URL)
+	_, err := adapter.GetResourceToken(context.Background(), "https://api.example.com", "read:data", "write:data")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if capturedForm["resource"] != "https://api.example.com" {
+		t.Errorf("expected resource 'https://api.example.com', got %q", capturedForm["resource"])
+	}
+
+	if capturedForm["scope"] != "read:data write:data" {
+		t.Errorf("expected scope 'read:data write:data', got %q", capturedForm["scope"])
+	}
+
+	if capturedForm["grant_type"] != "client_credentials" {
+		t.Errorf("expected grant_type 'client_credentials', got %q", capturedForm["grant_type"])
+	}
+}
+
+func TestGetResourceToken_UsesBasicAuth(t *testing.T) {
+	var capturedAuthHeader string
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/oidc/token" {
+			capturedAuthHeader = r.Header.Get("Authorization")
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"access_token": "test-token",
+				"expires_in":   3600,
+			})
+			return
+		}
+
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+
+	adapter := newTestAdapter(t, server.URL)
+	_, err := adapter.GetResourceToken(context.Background(), "https://api.example.com")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify Basic Auth header
+	if !strings.HasPrefix(capturedAuthHeader, "Basic ") {
+		t.Errorf("expected Authorization header to start with 'Basic ', got %q", capturedAuthHeader)
+	}
+}
+
+func TestGetResourceToken_WithoutScopes(t *testing.T) {
+	var capturedForm map[string][]string
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/oidc/token" {
+			_ = r.ParseForm()
+			capturedForm = r.PostForm
+
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"access_token": "test-token",
+				"expires_in":   3600,
+			})
+			return
+		}
+
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+
+	adapter := newTestAdapter(t, server.URL)
+	_, err := adapter.GetResourceToken(context.Background(), "https://api.example.com")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Verify scope is NOT sent when no scopes provided
+	if _, exists := capturedForm["scope"]; exists {
+		t.Errorf("expected scope to be absent when no scopes provided, but got %q", capturedForm["scope"])
+	}
+}
+
+func TestGetResourceToken_Validation(t *testing.T) {
+	adapter, _ := New("http://localhost", "app-id", "secret")
+
+	_, err := adapter.GetResourceToken(context.Background(), "")
+	if err == nil {
+		t.Fatal("expected error for empty resource")
+	}
+
+	if !errors.Is(err, ErrInvalidInput) {
+		t.Errorf("expected ErrInvalidInput, got %v", err)
+	}
+
+	var valErr *ValidationError
+	if errors.As(err, &valErr) {
+		if valErr.Field != "resource" {
+			t.Errorf("expected field 'resource', got %q", valErr.Field)
+		}
+	} else {
+		t.Error("expected ValidationError type")
+	}
+}
+
+func TestGetResourceToken_ExpiresAt(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/oidc/token" {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"access_token": "test-token",
+				"expires_in":   7200,
+			})
+			return
+		}
+
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+
+	adapter := newTestAdapter(t, server.URL)
+	before := time.Now()
+
+	result, err := adapter.GetResourceToken(context.Background(), "https://api.example.com")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	after := time.Now()
+
+	// ExpiresAt should be approximately now + 7200 seconds
+	expectedMin := before.Add(7200 * time.Second)
+	expectedMax := after.Add(7200 * time.Second)
+
+	if result.ExpiresAt.Before(expectedMin) || result.ExpiresAt.After(expectedMax) {
+		t.Errorf("ExpiresAt %v not in expected range [%v, %v]", result.ExpiresAt, expectedMin, expectedMax)
+	}
+}
+
+func TestGetResourceToken_HTTPError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/oidc/token" {
+			w.WriteHeader(http.StatusForbidden)
+			_, _ = w.Write([]byte(`{"message": "Access denied to resource"}`))
+			return
+		}
+
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+
+	adapter := newTestAdapter(t, server.URL)
+	_, err := adapter.GetResourceToken(context.Background(), "https://api.example.com")
+	if err == nil {
+		t.Fatal("expected error for forbidden resource")
+	}
+
+	if !errors.Is(err, ErrForbidden) {
+		t.Errorf("expected ErrForbidden, got %v", err)
 	}
 }
