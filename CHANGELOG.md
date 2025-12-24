@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.1.2](https://github.com/vaintrub/logto-go/compare/v1.1.1...v1.1.2) (2025-12-24)
+
+
+### Features
+
+* added impersonation ([5a5865c](https://github.com/vaintrub/logto-go/commit/5a5865ca1b49b92d21ec09d5e30cc5e676485021))
+* added impersonation ([113918f](https://github.com/vaintrub/logto-go/commit/113918f0f536a5cfdfa66fcfdf89ca14bb07cc9d))
+
+
+### Miscellaneous Chores
+
+* release 1.1.2 ([039024d](https://github.com/vaintrub/logto-go/commit/039024d5e3bbd4b40af6d7b5a101fbcd73b06bf5))
+
 ## [1.1.1](https://github.com/vaintrub/logto-go/compare/v1.1.0...v1.1.1) (2025-12-23)
 
 
