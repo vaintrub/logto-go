@@ -13,6 +13,19 @@ import (
 	"github.com/vaintrub/logto-go/models"
 )
 
+// testAPIResource is the API resource indicator created in bootstrap.sql
+// Used for token exchange (impersonation) tests
+const testAPIResource = "https://test-api.example.com"
+
+// testWebAppID and testWebAppSecret are the credentials for the Traditional Web App
+// created in bootstrap.sql.
+// NOTE: Token Exchange grant is NOT allowed for M2M apps in Logto - only for
+// Native, SPA, and Traditional Web Apps. Therefore we need a separate client app.
+const (
+	testWebAppID     = "test-web-app"
+	testWebAppSecret = "test-web-secret-12345"
+)
+
 // TestCreateSubjectToken tests creating a subject token for user impersonation
 func TestCreateSubjectToken(t *testing.T) {
 	ctx := context.Background()
@@ -80,7 +93,11 @@ func TestExchangeSubjectToken(t *testing.T) {
 	require.NoError(t, err)
 
 	// Exchange subject token for access token
-	result, err := testClient.ExchangeSubjectToken(ctx, subjectTokenResult.SubjectToken)
+	// Note: Token Exchange grant is NOT allowed for M2M apps - need client app credentials
+	result, err := testClient.ExchangeSubjectToken(ctx, subjectTokenResult.SubjectToken,
+		client.WithExchangeResource(testAPIResource),
+		client.WithClientCredentials(testWebAppID, testWebAppSecret),
+	)
 	require.NoError(t, err, "ExchangeSubjectToken should succeed")
 
 	assert.NotEmpty(t, result.AccessToken, "AccessToken should not be empty")
@@ -147,7 +164,11 @@ func TestGetUserAccessToken(t *testing.T) {
 	userID := user.ID
 
 	// Get user access token (combines CreateSubjectToken + ExchangeSubjectToken)
-	result, err := testClient.GetUserAccessToken(ctx, userID)
+	// Note: Token Exchange grant is NOT allowed for M2M apps - need client app credentials
+	result, err := testClient.GetUserAccessToken(ctx, userID,
+		client.WithExchangeResource(testAPIResource),
+		client.WithClientCredentials(testWebAppID, testWebAppSecret),
+	)
 	require.NoError(t, err, "GetUserAccessToken should succeed")
 
 	assert.NotEmpty(t, result.AccessToken, "AccessToken should not be empty")
