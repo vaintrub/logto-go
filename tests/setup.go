@@ -5,10 +5,13 @@ import (
 	"bytes"
 	"context"
 	_ "embed"
+	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"text/template"
 	"time"
 
@@ -25,11 +28,102 @@ var bootstrapSQL string
 const (
 	testM2MAppID     = "test-m2m-app"
 	testM2MAppSecret = "test-m2m-secret-12345"
+	testOrgID        = "test-org"
 
 	postgresUser     = "logto"
 	postgresPassword = "logto"
 	postgresDB       = "logto"
 )
+
+// EmailPayload represents an email received by the mock server.
+type EmailPayload struct {
+	To      string         `json:"to"`
+	Type    string         `json:"type"`
+	Payload map[string]any `json:"payload"`
+}
+
+// EmailMockServer holds received emails for verification in tests.
+// It listens on 0.0.0.0 so it's accessible from Docker containers via host.docker.internal.
+type EmailMockServer struct {
+	server     *http.Server
+	listener   net.Listener
+	received   []EmailPayload
+	mu         sync.Mutex
+	port       int
+	dockerHost string // hostname for Docker containers to reach this server
+}
+
+// NewEmailMockServer creates a new mock email server that listens on all interfaces.
+// dockerHost should be "host.docker.internal" for Docker Desktop (macOS/Windows)
+// or the host's IP address for Linux.
+func NewEmailMockServer(dockerHost string) (*EmailMockServer, error) {
+	mock := &EmailMockServer{
+		dockerHost: dockerHost,
+	}
+
+	// Listen on all interfaces so Docker containers can connect
+	listener, err := net.Listen("tcp", "0.0.0.0:0")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create listener: %w", err)
+	}
+	mock.listener = listener
+	mock.port = listener.Addr().(*net.TCPAddr).Port
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload EmailPayload
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		mock.mu.Lock()
+		mock.received = append(mock.received, payload)
+		mock.mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+	})
+
+	mock.server = &http.Server{Handler: handler}
+	go func() {
+		_ = mock.server.Serve(listener)
+	}()
+
+	return mock, nil
+}
+
+// URL returns the server URL for local access.
+func (m *EmailMockServer) URL() string {
+	return fmt.Sprintf("http://127.0.0.1:%d", m.port)
+}
+
+// DockerURL returns the URL that Docker containers should use to reach this server.
+func (m *EmailMockServer) DockerURL() string {
+	return fmt.Sprintf("http://%s:%d", m.dockerHost, m.port)
+}
+
+// Close shuts down the mock server.
+func (m *EmailMockServer) Close() {
+	if m.server != nil {
+		_ = m.server.Close()
+	}
+	if m.listener != nil {
+		_ = m.listener.Close()
+	}
+}
+
+// Received returns all received email payloads.
+func (m *EmailMockServer) Received() []EmailPayload {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	result := make([]EmailPayload, len(m.received))
+	copy(result, m.received)
+	return result
+}
+
+// Clear clears all received emails.
+func (m *EmailMockServer) Clear() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.received = nil
+}
 
 // Env holds the test environment containers and client.
 type Env struct {
@@ -39,6 +133,7 @@ type Env struct {
 	Client            *client.Adapter
 	LogtoEndpoint     string
 	PostgresURL       string
+	EmailMock         *EmailMockServer
 }
 
 // Setup creates a test environment with PostgreSQL and Logto containers.
@@ -49,6 +144,16 @@ type Env struct {
 // 4. Start Logto server
 func Setup(ctx context.Context) (*Env, error) {
 	env := &Env{}
+
+	// Start email mock server first (needed for bootstrap SQL)
+	// Use host.docker.internal for Docker Desktop (macOS/Windows)
+	// On Linux, this might need to be the host's IP address
+	emailMock, err := NewEmailMockServer("host.docker.internal")
+	if err != nil {
+		return nil, fmt.Errorf("failed to start email mock server: %w", err)
+	}
+	env.EmailMock = emailMock
+	log.Printf("Email mock server started at %s (Docker: %s)", env.EmailMock.URL(), env.EmailMock.DockerURL())
 
 	log.Println("Step 1/6: Starting PostgreSQL container...")
 	// 1. Start PostgreSQL container
@@ -143,7 +248,12 @@ func Setup(ctx context.Context) (*Env, error) {
 
 	log.Println("Step 3/6: Bootstrapping M2M application...")
 	// 3. Bootstrap M2M application via direct SQL (tables now exist!)
-	if err := bootstrapM2MApp(ctx, env.PostgresURL); err != nil {
+	// Use DockerURL for email endpoint so Logto container can reach it
+	if err := bootstrapM2MApp(ctx, env.PostgresURL, bootstrapParams{
+		M2MAppID:      testM2MAppID,
+		M2MAppSecret:  testM2MAppSecret,
+		EmailEndpoint: env.EmailMock.DockerURL(),
+	}); err != nil {
 		env.Teardown(ctx)
 		return nil, fmt.Errorf("failed to bootstrap M2M app: %w", err)
 	}
@@ -225,6 +335,9 @@ func (env *Env) Teardown(ctx context.Context) {
 	if env.PostgresContainer != nil {
 		_ = env.PostgresContainer.Terminate(ctx)
 	}
+	if env.EmailMock != nil {
+		env.EmailMock.Close()
+	}
 }
 
 // waitForLogtoReady waits for Logto to be ready.
@@ -246,8 +359,15 @@ func waitForLogtoReady(ctx context.Context, endpoint string, timeout time.Durati
 	return fmt.Errorf("timeout waiting for Logto at %s", endpoint)
 }
 
+// bootstrapParams holds parameters for the bootstrap SQL template.
+type bootstrapParams struct {
+	M2MAppID      string
+	M2MAppSecret  string
+	EmailEndpoint string
+}
+
 // bootstrapM2MApp creates the M2M application directly in the database.
-func bootstrapM2MApp(ctx context.Context, postgresURL string) error {
+func bootstrapM2MApp(ctx context.Context, postgresURL string, params bootstrapParams) error {
 	conn, err := pgx.Connect(ctx, postgresURL)
 	if err != nil {
 		return fmt.Errorf("connect to postgres: %w", err)
@@ -258,14 +378,6 @@ func bootstrapM2MApp(ctx context.Context, postgresURL string) error {
 	tmpl, err := template.New("bootstrap").Parse(bootstrapSQL)
 	if err != nil {
 		return fmt.Errorf("parse SQL template: %w", err)
-	}
-
-	params := struct {
-		M2MAppID     string
-		M2MAppSecret string
-	}{
-		M2MAppID:     testM2MAppID,
-		M2MAppSecret: testM2MAppSecret,
 	}
 
 	var buf bytes.Buffer

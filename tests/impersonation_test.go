@@ -119,19 +119,8 @@ func TestExchangeSubjectTokenWithOptions(t *testing.T) {
 	require.NoError(t, err)
 	userID := user.ID
 
-	// Create an organization and add user
-	org, err := testClient.CreateOrganization(ctx, models.OrganizationCreate{
-		Name: fmt.Sprintf("Impersonation Org %d", time.Now().UnixNano()),
-	})
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		if err := testClient.DeleteOrganization(context.Background(), org.ID); err != nil {
-			t.Logf("cleanup: failed to delete org: %v", err)
-		}
-	})
-
-	// Add user to organization
-	err = testClient.AddUserToOrganization(ctx, org.ID, userID, nil)
+	// Add user to pre-configured test organization
+	err = testClient.AddUserToOrganization(ctx, testOrgID, userID, nil)
 	require.NoError(t, err)
 
 	// Create subject token
@@ -139,15 +128,14 @@ func TestExchangeSubjectTokenWithOptions(t *testing.T) {
 	require.NoError(t, err)
 
 	// Exchange with organization scope
+	// Note: Token Exchange requires client app credentials (not M2M)
 	result, err := testClient.ExchangeSubjectToken(ctx, subjectTokenResult.SubjectToken,
-		client.WithOrganizationID(org.ID),
+		client.WithOrganizationID(testOrgID),
+		client.WithExchangeResource(testAPIResource),
+		client.WithClientCredentials(testWebAppID, testWebAppSecret),
 	)
-	if err != nil {
-		// This may fail if org tokens aren't configured properly
-		t.Logf("ExchangeSubjectToken with org: %v (may require additional setup)", err)
-	} else {
-		assert.NotEmpty(t, result.AccessToken)
-	}
+	require.NoError(t, err, "ExchangeSubjectToken with org should succeed")
+	assert.NotEmpty(t, result.AccessToken)
 }
 
 // TestGetUserAccessToken tests the convenience method

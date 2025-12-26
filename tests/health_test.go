@@ -39,45 +39,20 @@ func TestAuthenticateM2M(t *testing.T) {
 func TestGetOrganizationToken(t *testing.T) {
 	ctx := context.Background()
 
-	// Create an organization for testing
-	org, err := testClient.CreateOrganization(ctx, models.OrganizationCreate{
-		Name: fmt.Sprintf("OrgToken Test Org %d", time.Now().UnixNano()),
-	})
-	require.NoError(t, err, "CreateOrganization should succeed")
-	t.Cleanup(func() {
-		if err := testClient.DeleteOrganization(context.Background(), org.ID); err != nil {
-			t.Logf("cleanup: failed to delete organization %s: %v", org.ID, err)
-		}
-	})
+	// Use the pre-configured test organization from bootstrap.sql
+	// The M2M app is already added to this organization with appropriate roles
+	result, err := testClient.GetOrganizationToken(ctx, testOrgID)
+	require.NoError(t, err, "GetOrganizationToken should succeed for pre-configured org")
 
-	// Note: For this test to fully work, the M2M application used by testClient
-	// needs to be added to the organization and assigned appropriate roles.
-	// In a real setup, you would do:
-	//   testClient.AddOrganizationApplications(ctx, org.ID, []string{m2mAppID})
-	//   testClient.AssignOrganizationApplicationRoles(ctx, org.ID, m2mAppID, []string{roleID})
-	//
-	// For now, we test the basic functionality - the method should either:
-	// - Return a token (if setup is complete)
-	// - Return an error (if M2M app is not in org)
-
-	result, err := testClient.GetOrganizationToken(ctx, org.ID)
-	if err != nil {
-		// Expected if M2M app is not added to the organization
-		t.Skipf("GetOrganizationToken skipped (M2M app not in org): %v", err)
-	}
-
-	// If we got here, the M2M app must be properly configured
 	assert.NotEmpty(t, result.AccessToken, "AccessToken should not be empty")
 	assert.Greater(t, result.ExpiresIn, 0, "ExpiresIn should be positive")
 	assert.True(t, result.ExpiresAt.After(time.Now()), "ExpiresAt should be in the future")
 	assert.Equal(t, "Bearer", result.TokenType, "TokenType should be Bearer")
 
 	// Verify NO caching - second call should make a new request
-	result2, err := testClient.GetOrganizationToken(ctx, org.ID)
+	result2, err := testClient.GetOrganizationToken(ctx, testOrgID)
 	require.NoError(t, err)
 	assert.NotEmpty(t, result2.AccessToken)
-	// Note: tokens might be the same or different depending on Logto's behavior
-	// The key point is that the method doesn't cache internally
 }
 
 // TestGetOrganizationTokenValidation tests input validation for GetOrganizationToken

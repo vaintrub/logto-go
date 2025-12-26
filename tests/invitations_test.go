@@ -99,13 +99,26 @@ func TestSendInvitationMessage(t *testing.T) {
 		}
 	})
 
+	// Clear any previous emails
+	testEnv.EmailMock.Clear()
+
 	// Send invitation message with magic link
-	// Note: This may fail in test environment without email connector configured,
-	// but we're testing the API call works
-	err = testClient.SendInvitationMessage(ctx, invitationID, "https://example.com/invite?token=test123")
-	// Accept either success or error about email connector not configured
-	if err != nil {
-		t.Logf("SendInvitationMessage returned expected error (no email connector): %v", err)
+	magicLink := "https://example.com/invite?token=test123"
+	err = testClient.SendInvitationMessage(ctx, invitationID, magicLink)
+	require.NoError(t, err, "SendInvitationMessage should succeed")
+
+	// Verify email was received by mock server
+	received := testEnv.EmailMock.Received()
+	require.Len(t, received, 1, "Should have received exactly one email")
+
+	email := received[0]
+	assert.Equal(t, inviteeEmail, email.To, "Email should be sent to invitee")
+	assert.Equal(t, "OrganizationInvitation", email.Type, "Email type should be OrganizationInvitation")
+	assert.NotNil(t, email.Payload, "Email payload should not be nil")
+
+	// Verify payload contains the magic link
+	if link, ok := email.Payload["link"].(string); ok {
+		assert.Equal(t, magicLink, link, "Magic link should be in payload")
 	}
 }
 
