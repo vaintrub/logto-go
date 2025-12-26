@@ -108,9 +108,7 @@ func TestDeleteOrganization_Validation(t *testing.T) {
 func TestListUserOrganizations_Validation(t *testing.T) {
 	ctx := context.Background()
 
-	iter := testClient.ListUserOrganizations("", client.DefaultIteratorConfig())
-	iter.Next(ctx)
-	err := iter.Err()
+	_, err := testClient.ListUserOrganizations(ctx, "")
 	require.Error(t, err, "ListUserOrganizations with empty userID should fail")
 	var validationErr *client.ValidationError
 	require.ErrorAs(t, err, &validationErr)

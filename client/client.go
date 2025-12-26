@@ -45,7 +45,7 @@ type Client interface {
 	// Organizations (GET /organizations, GET /organizations/{id}, POST/PATCH/DELETE)
 	GetOrganization(ctx context.Context, orgID string) (*models.Organization, error)
 	ListOrganizations(config IteratorConfig) *Iterator[models.Organization]
-	ListUserOrganizations(userID string, config IteratorConfig) *Iterator[models.UserOrganization]
+	ListUserOrganizations(ctx context.Context, userID string) ([]models.UserOrganization, error)
 	CreateOrganization(ctx context.Context, org models.OrganizationCreate) (*models.Organization, error)
 	UpdateOrganization(ctx context.Context, orgID string, update models.OrganizationUpdate) (*models.Organization, error)
 	DeleteOrganization(ctx context.Context, orgID string) error
@@ -134,7 +134,7 @@ type Client interface {
 
 	// Invitations (GET/POST/DELETE /organization-invitations)
 	CreateOrganizationInvitation(ctx context.Context, invitation models.OrganizationInvitationCreate) (*models.OrganizationInvitation, error)
-	ListOrganizationInvitations(orgID string, config IteratorConfig) *Iterator[models.OrganizationInvitation]
+	ListOrganizationInvitations(ctx context.Context, orgID string) ([]models.OrganizationInvitation, error)
 	GetOrganizationInvitation(ctx context.Context, invitationID string) (*models.OrganizationInvitation, error)
 	DeleteOrganizationInvitation(ctx context.Context, invitationID string) error
 	SendInvitationMessage(ctx context.Context, invitationID, magicLink string) error

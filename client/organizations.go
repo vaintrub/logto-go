@@ -33,42 +33,28 @@ func (a *Adapter) ListOrganizations(config IteratorConfig) *Iterator[models.Orga
 	return NewIterator(a.listOrganizationsPaginated, config)
 }
 
-// ListUserOrganizations returns an iterator for organizations where the user is a member,
+// ListUserOrganizations returns all organizations a user belongs to,
 // including the user's roles in each organization.
-func (a *Adapter) ListUserOrganizations(userID string, config IteratorConfig) *Iterator[models.UserOrganization] {
-	fetcher := func(ctx context.Context, page, pageSize int) (PageResult[models.UserOrganization], error) {
-		if userID == "" {
-			return PageResult[models.UserOrganization]{}, &ValidationError{Field: "userID", Message: "cannot be empty"}
-		}
-		return a.listUserOrganizationsPaginated(ctx, userID, page, pageSize)
+// Note: The Logto API does not support pagination for this endpoint.
+func (a *Adapter) ListUserOrganizations(ctx context.Context, userID string) ([]models.UserOrganization, error) {
+	if userID == "" {
+		return nil, &ValidationError{Field: "userID", Message: "cannot be empty"}
 	}
-	return NewIterator(fetcher, config)
-}
 
-// listUserOrganizationsPaginated returns user organizations with pagination support
-func (a *Adapter) listUserOrganizationsPaginated(ctx context.Context, userID string, page, pageSize int) (PageResult[models.UserOrganization], error) {
-	result, err := a.doRequestFull(ctx, requestConfig{
+	body, _, err := a.doRequest(ctx, requestConfig{
 		method:     http.MethodGet,
 		path:       "/api/users/%s/organizations",
 		pathParams: []string{userID},
-		query: url.Values{
-			"page":      {fmt.Sprintf("%d", page)},
-			"page_size": {fmt.Sprintf("%d", pageSize)},
-		},
 	})
 	if err != nil {
-		return PageResult[models.UserOrganization]{}, err
+		return nil, err
 	}
 
 	var orgs []models.UserOrganization
-	if err := json.Unmarshal(result.Body, &orgs); err != nil {
-		return PageResult[models.UserOrganization]{}, fmt.Errorf("unmarshal user organizations: %w", err)
+	if err := json.Unmarshal(body, &orgs); err != nil {
+		return nil, fmt.Errorf("unmarshal user organizations: %w", err)
 	}
-
-	return PageResult[models.UserOrganization]{
-		Items: orgs,
-		Total: getTotalFromHeaders(result.Headers),
-	}, nil
+	return orgs, nil
 }
 
 // CreateOrganization creates a new organization in Logto

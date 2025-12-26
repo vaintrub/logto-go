@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -30,6 +31,8 @@ type tokenExchangeOptions struct {
 	organizationID string
 	scopes         []string
 	resource       string
+	clientID       string // Override client ID for token exchange
+	clientSecret   string // Override client secret for token exchange
 }
 
 // WithOrganizationID sets the organization context for the exchanged token.
@@ -51,6 +54,25 @@ func WithScopes(scopes ...string) TokenExchangeOption {
 func WithExchangeResource(resource string) TokenExchangeOption {
 	return func(o *tokenExchangeOptions) {
 		o.resource = resource
+	}
+}
+
+// WithClientCredentials sets the client credentials for token exchange.
+//
+// IMPORTANT: In Logto, the Token Exchange grant type is NOT allowed for M2M applications.
+// It is only available for Native, SPA, and Traditional Web Apps.
+// Therefore, you must create a separate client application (e.g., Traditional Web App)
+// and provide its credentials here for token exchange to work.
+//
+// The typical flow is:
+//  1. M2M app calls CreateSubjectToken via Management API (uses M2M credentials)
+//  2. Exchange is performed using client app credentials (this option)
+//
+// If not set, uses the adapter's M2M credentials (which will fail with invalid_request).
+func WithClientCredentials(clientID, clientSecret string) TokenExchangeOption {
+	return func(o *tokenExchangeOptions) {
+		o.clientID = clientID
+		o.clientSecret = clientSecret
 	}
 }
 
@@ -122,18 +144,29 @@ func (a *Adapter) ExchangeSubjectToken(ctx context.Context, subjectToken string,
 
 	tokenURL := fmt.Sprintf("%s/oidc/token", a.endpoint)
 
+	// Determine which credentials to use
+	clientID := a.m2mAppID
+	credentials := a.cachedCredentials
+	if o.clientID != "" && o.clientSecret != "" {
+		clientID = o.clientID
+		credentials = base64.StdEncoding.EncodeToString([]byte(o.clientID + ":" + o.clientSecret))
+	}
+
 	data := url.Values{}
 	data.Set("grant_type", "urn:ietf:params:oauth:grant-type:token-exchange")
 	data.Set("subject_token", subjectToken)
 	data.Set("subject_token_type", "urn:ietf:params:oauth:token-type:access_token")
-	data.Set("client_id", a.m2mAppID)
+	data.Set("client_id", clientID)
 
 	if o.resource != "" {
 		data.Set("resource", o.resource)
 	}
 
+	// Scope is required for token exchange - default to "openid" if not specified
 	if len(o.scopes) > 0 {
 		data.Set("scope", strings.Join(o.scopes, " "))
+	} else {
+		data.Set("scope", "openid")
 	}
 
 	if o.organizationID != "" {
@@ -146,7 +179,7 @@ func (a *Adapter) ExchangeSubjectToken(ctx context.Context, subjectToken string,
 	}
 
 	// Use Basic Auth as required by Logto documentation for token exchange
-	req.Header.Set("Authorization", "Basic "+a.cachedCredentials)
+	req.Header.Set("Authorization", "Basic "+credentials)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 	resp, err := a.httpClient.Do(req)

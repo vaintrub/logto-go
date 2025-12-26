@@ -56,6 +56,9 @@ func New(endpoint, m2mAppID, m2mAppSecret string, opts ...Option) (*Adapter, err
 		transport.MaxIdleConns = 100
 		transport.MaxIdleConnsPerHost = 100
 		transport.MaxConnsPerHost = 100
+		// Add transport-level timeouts to prevent hanging connections in Docker/CI
+		transport.ResponseHeaderTimeout = o.responseHeaderTimeout
+		transport.IdleConnTimeout = o.idleConnTimeout
 		httpClient = &http.Client{
 			Timeout:   o.timeout,
 			Transport: transport,
@@ -915,41 +918,27 @@ func (a *Adapter) CreateOrganizationInvitation(ctx context.Context, invitation m
 	return parseInvitationResponse(body)
 }
 
-// ListOrganizationInvitations returns an iterator for invitations for an organization.
-func (a *Adapter) ListOrganizationInvitations(orgID string, config IteratorConfig) *Iterator[models.OrganizationInvitation] {
-	fetcher := func(ctx context.Context, page, pageSize int) (PageResult[models.OrganizationInvitation], error) {
-		if orgID == "" {
-			return PageResult[models.OrganizationInvitation]{}, &ValidationError{Field: "orgID", Message: "cannot be empty"}
-		}
-		return a.listOrganizationInvitationsPaginated(ctx, orgID, page, pageSize)
+// ListOrganizationInvitations returns all invitations for an organization.
+// Note: The Logto API does not support pagination for this endpoint.
+func (a *Adapter) ListOrganizationInvitations(ctx context.Context, orgID string) ([]models.OrganizationInvitation, error) {
+	if orgID == "" {
+		return nil, &ValidationError{Field: "orgID", Message: "cannot be empty"}
 	}
-	return NewIterator(fetcher, config)
-}
 
-// listOrganizationInvitationsPaginated returns organization invitations with pagination support
-func (a *Adapter) listOrganizationInvitationsPaginated(ctx context.Context, orgID string, page, pageSize int) (PageResult[models.OrganizationInvitation], error) {
-	result, err := a.doRequestFull(ctx, requestConfig{
+	body, _, err := a.doRequest(ctx, requestConfig{
 		method: http.MethodGet,
 		path:   "/api/organization-invitations",
-		query: url.Values{
-			"organizationId": {orgID},
-			"page":           {fmt.Sprintf("%d", page)},
-			"page_size":      {fmt.Sprintf("%d", pageSize)},
-		},
+		query:  url.Values{"organizationId": {orgID}},
 	})
 	if err != nil {
-		return PageResult[models.OrganizationInvitation]{}, err
+		return nil, err
 	}
 
 	var invitations []models.OrganizationInvitation
-	if err := json.Unmarshal(result.Body, &invitations); err != nil {
-		return PageResult[models.OrganizationInvitation]{}, fmt.Errorf("unmarshal invitations: %w", err)
+	if err := json.Unmarshal(body, &invitations); err != nil {
+		return nil, fmt.Errorf("unmarshal invitations: %w", err)
 	}
-
-	return PageResult[models.OrganizationInvitation]{
-		Items: invitations,
-		Total: getTotalFromHeaders(result.Headers),
-	}, nil
+	return invitations, nil
 }
 
 // GetOrganizationInvitation retrieves a single invitation by ID

@@ -221,6 +221,90 @@ func TestAssignResourceScopesToOrganizationRole(t *testing.T) {
 	// Assign resource scope to organization role
 	err = testClient.AssignResourceScopesToOrganizationRole(ctx, roleID, []string{scopeID})
 	require.NoError(t, err, "AssignResourceScopesToOrganizationRole should succeed")
+
+	// Verify resource scopes were assigned using GetOrganizationRoleResourceScopes
+	resourceScopes, err := testClient.GetOrganizationRoleResourceScopes(ctx, roleID)
+	require.NoError(t, err, "GetOrganizationRoleResourceScopes should succeed")
+	require.Len(t, resourceScopes, 1, "Should have 1 resource scope")
+	assert.Equal(t, scopeID, resourceScopes[0].ID)
+	assert.Equal(t, resourceID, resourceScopes[0].ResourceID)
+}
+
+// TestGetOrganizationRoleResourceScopes tests retrieving API resource scopes from org roles
+func TestGetOrganizationRoleResourceScopes(t *testing.T) {
+	ctx := context.Background()
+
+	// Create API resource with multiple scopes
+	createdResource, err := testClient.CreateAPIResource(ctx, models.APIResourceCreate{
+		Name:      fmt.Sprintf("Multi Scope API %d", time.Now().UnixNano()),
+		Indicator: fmt.Sprintf("https://api.multi-scope.test/%d", time.Now().UnixNano()),
+	})
+	require.NoError(t, err)
+	resourceID := createdResource.ID
+	t.Cleanup(func() {
+		if err := testClient.DeleteAPIResource(context.Background(), resourceID); err != nil {
+			t.Logf("cleanup: failed to delete API resource %s: %v", resourceID, err)
+		}
+	})
+
+	scope1, err := testClient.CreateAPIResourceScope(ctx, resourceID, models.APIResourceScopeCreate{
+		Name:        fmt.Sprintf("read:%d", time.Now().UnixNano()),
+		Description: "Read access",
+	})
+	require.NoError(t, err)
+	scope1ID := scope1.ID
+
+	scope2, err := testClient.CreateAPIResourceScope(ctx, resourceID, models.APIResourceScopeCreate{
+		Name:        fmt.Sprintf("write:%d", time.Now().UnixNano()),
+		Description: "Write access",
+	})
+	require.NoError(t, err)
+	scope2ID := scope2.ID
+
+	// Create organization role
+	createdRole, err := testClient.CreateOrganizationRole(ctx, models.OrganizationRoleCreate{
+		Name: fmt.Sprintf("multi-resource-scope-role-%d", time.Now().UnixNano()),
+	})
+	require.NoError(t, err)
+	roleID := createdRole.ID
+	t.Cleanup(func() {
+		if err := testClient.DeleteOrganizationRole(context.Background(), roleID); err != nil {
+			t.Logf("cleanup: failed to delete organization role %s: %v", roleID, err)
+		}
+	})
+
+	// Initially should have no resource scopes
+	scopes, err := testClient.GetOrganizationRoleResourceScopes(ctx, roleID)
+	require.NoError(t, err, "GetOrganizationRoleResourceScopes should succeed for empty role")
+	assert.Len(t, scopes, 0, "New role should have no resource scopes")
+
+	// Assign multiple resource scopes
+	err = testClient.AssignResourceScopesToOrganizationRole(ctx, roleID, []string{scope1ID, scope2ID})
+	require.NoError(t, err)
+
+	// Verify both scopes are returned
+	scopes, err = testClient.GetOrganizationRoleResourceScopes(ctx, roleID)
+	require.NoError(t, err)
+	assert.Len(t, scopes, 2, "Should have 2 resource scopes")
+
+	scopeIDs := make(map[string]bool)
+	for _, s := range scopes {
+		scopeIDs[s.ID] = true
+		assert.Equal(t, resourceID, s.ResourceID, "ResourceID should match")
+	}
+	assert.True(t, scopeIDs[scope1ID], "Scope 1 should be present")
+	assert.True(t, scopeIDs[scope2ID], "Scope 2 should be present")
+}
+
+// TestGetOrganizationRoleResourceScopes_Validation tests validation errors
+func TestGetOrganizationRoleResourceScopes_Validation(t *testing.T) {
+	ctx := context.Background()
+
+	_, err := testClient.GetOrganizationRoleResourceScopes(ctx, "")
+	require.Error(t, err, "GetOrganizationRoleResourceScopes with empty roleID should fail")
+	var validationErr *client.ValidationError
+	require.ErrorAs(t, err, &validationErr)
+	assert.Equal(t, "roleID", validationErr.Field)
 }
 
 // === Validation Tests ===

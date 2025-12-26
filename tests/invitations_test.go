@@ -15,7 +15,8 @@ import (
 
 // TestOrganizationInvitations tests invitation lifecycle
 func TestOrganizationInvitations(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
 
 	// Create organization
 	createdOrg, err := testClient.CreateOrganization(ctx, models.OrganizationCreate{
@@ -50,7 +51,7 @@ func TestOrganizationInvitations(t *testing.T) {
 	assert.Equal(t, "Pending", invitation.Status)
 
 	// List invitations
-	invitations, err := testClient.ListOrganizationInvitations(orgID, client.DefaultIteratorConfig()).Collect(ctx)
+	invitations, err := testClient.ListOrganizationInvitations(ctx, orgID)
 	require.NoError(t, err, "ListOrganizationInvitations should succeed")
 	assert.Len(t, invitations, 1)
 
@@ -59,14 +60,15 @@ func TestOrganizationInvitations(t *testing.T) {
 	require.NoError(t, err, "DeleteOrganizationInvitation should succeed")
 
 	// Verify deletion
-	invitations, err = testClient.ListOrganizationInvitations(orgID, client.DefaultIteratorConfig()).Collect(ctx)
+	invitations, err = testClient.ListOrganizationInvitations(ctx, orgID)
 	require.NoError(t, err)
 	assert.Len(t, invitations, 0)
 }
 
 // TestSendInvitationMessage tests sending invitation email
 func TestSendInvitationMessage(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
 
 	// Create organization
 	createdOrg, err := testClient.CreateOrganization(ctx, models.OrganizationCreate{
@@ -97,13 +99,26 @@ func TestSendInvitationMessage(t *testing.T) {
 		}
 	})
 
+	// Clear any previous emails
+	testEnv.EmailMock.Clear()
+
 	// Send invitation message with magic link
-	// Note: This may fail in test environment without email connector configured,
-	// but we're testing the API call works
-	err = testClient.SendInvitationMessage(ctx, invitationID, "https://example.com/invite?token=test123")
-	// Accept either success or error about email connector not configured
-	if err != nil {
-		t.Logf("SendInvitationMessage returned expected error (no email connector): %v", err)
+	magicLink := "https://example.com/invite?token=test123"
+	err = testClient.SendInvitationMessage(ctx, invitationID, magicLink)
+	require.NoError(t, err, "SendInvitationMessage should succeed")
+
+	// Verify email was received by mock server
+	received := testEnv.EmailMock.Received()
+	require.Len(t, received, 1, "Should have received exactly one email")
+
+	email := received[0]
+	assert.Equal(t, inviteeEmail, email.To, "Email should be sent to invitee")
+	assert.Equal(t, "OrganizationInvitation", email.Type, "Email type should be OrganizationInvitation")
+	assert.NotNil(t, email.Payload, "Email payload should not be nil")
+
+	// Verify payload contains the magic link
+	if link, ok := email.Payload["link"].(string); ok {
+		assert.Equal(t, magicLink, link, "Magic link should be in payload")
 	}
 }
 
@@ -111,7 +126,8 @@ func TestSendInvitationMessage(t *testing.T) {
 
 // TestCreateOrganizationInvitation_Validation tests validation errors
 func TestCreateOrganizationInvitation_Validation(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 
 	t.Run("empty organizationId", func(t *testing.T) {
 		_, err := testClient.CreateOrganizationInvitation(ctx, models.OrganizationInvitationCreate{
@@ -140,11 +156,10 @@ func TestCreateOrganizationInvitation_Validation(t *testing.T) {
 
 // TestListOrganizationInvitations_Validation tests validation errors
 func TestListOrganizationInvitations_Validation(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 
-	iter := testClient.ListOrganizationInvitations("", client.DefaultIteratorConfig())
-	iter.Next(ctx)
-	err := iter.Err()
+	_, err := testClient.ListOrganizationInvitations(ctx, "")
 	require.Error(t, err, "ListOrganizationInvitations with empty orgID should fail")
 	var validationErr *client.ValidationError
 	require.ErrorAs(t, err, &validationErr)
@@ -153,7 +168,8 @@ func TestListOrganizationInvitations_Validation(t *testing.T) {
 
 // TestGetOrganizationInvitation_Validation tests validation errors
 func TestGetOrganizationInvitation_Validation(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 
 	_, err := testClient.GetOrganizationInvitation(ctx, "")
 	require.Error(t, err, "GetOrganizationInvitation with empty invitationID should fail")
@@ -164,7 +180,8 @@ func TestGetOrganizationInvitation_Validation(t *testing.T) {
 
 // TestDeleteOrganizationInvitation_Validation tests validation errors
 func TestDeleteOrganizationInvitation_Validation(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 
 	err := testClient.DeleteOrganizationInvitation(ctx, "")
 	require.Error(t, err, "DeleteOrganizationInvitation with empty invitationID should fail")
@@ -175,7 +192,8 @@ func TestDeleteOrganizationInvitation_Validation(t *testing.T) {
 
 // TestSendInvitationMessage_Validation tests validation errors
 func TestSendInvitationMessage_Validation(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 
 	t.Run("empty invitationID", func(t *testing.T) {
 		err := testClient.SendInvitationMessage(ctx, "", "https://example.com/invite")
