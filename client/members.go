@@ -5,31 +5,46 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 
 	"github.com/vaintrub/logto-go/models"
 )
 
-// ListOrganizationMembers lists all members of an organization with their roles.
-func (a *Adapter) ListOrganizationMembers(ctx context.Context, orgID string) ([]models.OrganizationMember, error) {
-	if orgID == "" {
-		return nil, &ValidationError{Field: "orgID", Message: "cannot be empty"}
+// ListOrganizationMembers returns an iterator for all members of an organization with their roles.
+func (a *Adapter) ListOrganizationMembers(orgID string, config IteratorConfig) *Iterator[models.OrganizationMember] {
+	fetcher := func(ctx context.Context, page, pageSize int) (PageResult[models.OrganizationMember], error) {
+		if orgID == "" {
+			return PageResult[models.OrganizationMember]{}, &ValidationError{Field: "orgID", Message: "cannot be empty"}
+		}
+		return a.listOrganizationMembersPaginated(ctx, orgID, page, pageSize)
 	}
+	return NewIterator(fetcher, config)
+}
 
-	body, _, err := a.doRequest(ctx, requestConfig{
+// listOrganizationMembersPaginated returns organization members with pagination support
+func (a *Adapter) listOrganizationMembersPaginated(ctx context.Context, orgID string, page, pageSize int) (PageResult[models.OrganizationMember], error) {
+	result, err := a.doRequestFull(ctx, requestConfig{
 		method:     http.MethodGet,
 		path:       "/api/organizations/%s/users",
 		pathParams: []string{orgID},
+		query: url.Values{
+			"page":      {fmt.Sprintf("%d", page)},
+			"page_size": {fmt.Sprintf("%d", pageSize)},
+		},
 	})
 	if err != nil {
-		return nil, err
+		return PageResult[models.OrganizationMember]{}, err
 	}
 
 	var members []models.OrganizationMember
-	if err := json.Unmarshal(body, &members); err != nil {
-		return nil, fmt.Errorf("unmarshal organization members: %w", err)
+	if err := json.Unmarshal(result.Body, &members); err != nil {
+		return PageResult[models.OrganizationMember]{}, fmt.Errorf("unmarshal organization members: %w", err)
 	}
 
-	return members, nil
+	return PageResult[models.OrganizationMember]{
+		Items: members,
+		Total: getTotalFromHeaders(result.Headers),
+	}, nil
 }
 
 // AddUserToOrganization adds a user to an organization with specified roles

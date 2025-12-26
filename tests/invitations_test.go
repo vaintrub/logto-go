@@ -50,7 +50,7 @@ func TestOrganizationInvitations(t *testing.T) {
 	assert.Equal(t, "Pending", invitation.Status)
 
 	// List invitations
-	invitations, err := testClient.ListOrganizationInvitations(ctx, orgID)
+	invitations, err := testClient.ListOrganizationInvitations(orgID, client.DefaultIteratorConfig()).Collect(ctx)
 	require.NoError(t, err, "ListOrganizationInvitations should succeed")
 	assert.Len(t, invitations, 1)
 
@@ -59,7 +59,7 @@ func TestOrganizationInvitations(t *testing.T) {
 	require.NoError(t, err, "DeleteOrganizationInvitation should succeed")
 
 	// Verify deletion
-	invitations, err = testClient.ListOrganizationInvitations(ctx, orgID)
+	invitations, err = testClient.ListOrganizationInvitations(orgID, client.DefaultIteratorConfig()).Collect(ctx)
 	require.NoError(t, err)
 	assert.Len(t, invitations, 0)
 }
@@ -142,7 +142,9 @@ func TestCreateOrganizationInvitation_Validation(t *testing.T) {
 func TestListOrganizationInvitations_Validation(t *testing.T) {
 	ctx := context.Background()
 
-	_, err := testClient.ListOrganizationInvitations(ctx, "")
+	iter := testClient.ListOrganizationInvitations("", client.DefaultIteratorConfig())
+	iter.Next(ctx)
+	err := iter.Err()
 	require.Error(t, err, "ListOrganizationInvitations with empty orgID should fail")
 	var validationErr *client.ValidationError
 	require.ErrorAs(t, err, &validationErr)

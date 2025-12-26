@@ -58,22 +58,21 @@ func (a *Adapter) GetUserByEmail(ctx context.Context, email string) (*models.Use
 	return nil, ErrUserNotFound
 }
 
-// ListUsers retrieves all users.
-func (a *Adapter) ListUsers(ctx context.Context) ([]models.User, error) {
-	body, _, err := a.doRequest(ctx, requestConfig{
-		method: http.MethodGet,
-		path:   "/api/users",
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	var users []models.User
-	if err := json.Unmarshal(body, &users); err != nil {
-		return nil, fmt.Errorf("unmarshal users: %w", err)
-	}
-
-	return users, nil
+// ListUsers returns an iterator for paginating through all users.
+// Use iter.Next(ctx) to iterate, iter.Item() to get current user.
+//
+// Example:
+//
+//	iter := client.ListUsers(client.IteratorConfig{PageSize: 50})
+//	for iter.Next(ctx) {
+//	    user := iter.Item()
+//	    fmt.Println(user.ID)
+//	}
+//	if err := iter.Err(); err != nil {
+//	    return err
+//	}
+func (a *Adapter) ListUsers(config IteratorConfig) *Iterator[models.User] {
+	return NewIterator(a.listUsersPaginated, config)
 }
 
 // CreateUser creates a new user in Logto
@@ -249,8 +248,8 @@ func (a *Adapter) SuspendUser(ctx context.Context, userID string, suspended bool
 }
 
 // listUsersPaginated returns users with pagination support
-func (a *Adapter) listUsersPaginated(ctx context.Context, page, pageSize int) ([]models.User, error) {
-	body, _, err := a.doRequest(ctx, requestConfig{
+func (a *Adapter) listUsersPaginated(ctx context.Context, page, pageSize int) (PageResult[models.User], error) {
+	result, err := a.doRequestFull(ctx, requestConfig{
 		method: http.MethodGet,
 		path:   "/api/users",
 		query: url.Values{
@@ -259,15 +258,18 @@ func (a *Adapter) listUsersPaginated(ctx context.Context, page, pageSize int) ([
 		},
 	})
 	if err != nil {
-		return nil, err
+		return PageResult[models.User]{}, err
 	}
 
 	var users []models.User
-	if err := json.Unmarshal(body, &users); err != nil {
-		return nil, fmt.Errorf("unmarshal paginated users: %w", err)
+	if err := json.Unmarshal(result.Body, &users); err != nil {
+		return PageResult[models.User]{}, fmt.Errorf("unmarshal paginated users: %w", err)
 	}
 
-	return users, nil
+	return PageResult[models.User]{
+		Items: users,
+		Total: getTotalFromHeaders(result.Headers),
+	}, nil
 }
 
 // parseUserResponse parses user from API response

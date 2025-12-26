@@ -18,7 +18,7 @@ func TestApplicationOperations(t *testing.T) {
 	ctx := context.Background()
 
 	// List applications (should include our M2M app)
-	apps, err := testClient.ListApplications(ctx)
+	apps, err := testClient.ListApplications(client.DefaultIteratorConfig()).Collect(ctx)
 	require.NoError(t, err, "ListApplications should succeed")
 	assert.NotEmpty(t, apps, "Should have at least our M2M app")
 
@@ -34,7 +34,7 @@ func TestApplicationOperations(t *testing.T) {
 	appID := createdApp.ID
 
 	// Verify app appears in list
-	apps, err = testClient.ListApplications(ctx)
+	apps, err = testClient.ListApplications(client.DefaultIteratorConfig()).Collect(ctx)
 	require.NoError(t, err)
 	found := false
 	for _, app := range apps {
@@ -92,7 +92,7 @@ func TestOrganizationApplications(t *testing.T) {
 	require.NoError(t, err, "AddOrganizationApplications should succeed")
 
 	// List organization applications
-	apps, err := testClient.ListOrganizationApplications(ctx, orgID)
+	apps, err := testClient.ListOrganizationApplications(orgID, client.DefaultIteratorConfig()).Collect(ctx)
 	require.NoError(t, err, "ListOrganizationApplications should succeed")
 	assert.Len(t, apps, 1)
 	assert.Equal(t, appID, apps[0].ID)
@@ -121,7 +121,7 @@ func TestOrganizationApplications(t *testing.T) {
 	require.NoError(t, err, "RemoveApplicationFromOrganization should succeed")
 
 	// Verify application removed
-	apps, err = testClient.ListOrganizationApplications(ctx, orgID)
+	apps, err = testClient.ListOrganizationApplications(orgID, client.DefaultIteratorConfig()).Collect(ctx)
 	require.NoError(t, err)
 	assert.Len(t, apps, 0)
 }
@@ -132,7 +132,9 @@ func TestOrganizationApplications(t *testing.T) {
 func TestListOrganizationApplications_Validation(t *testing.T) {
 	ctx := context.Background()
 
-	_, err := testClient.ListOrganizationApplications(ctx, "")
+	iter := testClient.ListOrganizationApplications("", client.DefaultIteratorConfig())
+	iter.Next(ctx)
+	err := iter.Err()
 	require.Error(t, err, "ListOrganizationApplications with empty orgID should fail")
 	var validationErr *client.ValidationError
 	require.ErrorAs(t, err, &validationErr)

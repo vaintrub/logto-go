@@ -319,27 +319,41 @@ func (a *Adapter) GetResourceToken(ctx context.Context, resource string, scopes 
 	return &result, nil
 }
 
-// ListOrganizationApplications lists all applications in an organization
-func (a *Adapter) ListOrganizationApplications(ctx context.Context, orgID string) ([]models.Application, error) {
-	if orgID == "" {
-		return nil, &ValidationError{Field: "orgID", Message: "cannot be empty"}
+// ListOrganizationApplications returns an iterator for all applications in an organization.
+func (a *Adapter) ListOrganizationApplications(orgID string, config IteratorConfig) *Iterator[models.Application] {
+	fetcher := func(ctx context.Context, page, pageSize int) (PageResult[models.Application], error) {
+		if orgID == "" {
+			return PageResult[models.Application]{}, &ValidationError{Field: "orgID", Message: "cannot be empty"}
+		}
+		return a.listOrganizationApplicationsPaginated(ctx, orgID, page, pageSize)
 	}
+	return NewIterator(fetcher, config)
+}
 
-	body, _, err := a.doRequest(ctx, requestConfig{
+// listOrganizationApplicationsPaginated returns organization applications with pagination support
+func (a *Adapter) listOrganizationApplicationsPaginated(ctx context.Context, orgID string, page, pageSize int) (PageResult[models.Application], error) {
+	result, err := a.doRequestFull(ctx, requestConfig{
 		method:     http.MethodGet,
 		path:       "/api/organizations/%s/applications",
 		pathParams: []string{orgID},
+		query: url.Values{
+			"page":      {fmt.Sprintf("%d", page)},
+			"page_size": {fmt.Sprintf("%d", pageSize)},
+		},
 	})
 	if err != nil {
-		return nil, err
+		return PageResult[models.Application]{}, err
 	}
 
 	var apps []models.Application
-	if err := json.Unmarshal(body, &apps); err != nil {
-		return nil, fmt.Errorf("unmarshal applications: %w", err)
+	if err := json.Unmarshal(result.Body, &apps); err != nil {
+		return PageResult[models.Application]{}, fmt.Errorf("unmarshal applications: %w", err)
 	}
 
-	return apps, nil
+	return PageResult[models.Application]{
+		Items: apps,
+		Total: getTotalFromHeaders(result.Headers),
+	}, nil
 }
 
 // AddOrganizationApplications adds applications to an organization
@@ -453,22 +467,34 @@ func (a *Adapter) RemoveRolesFromOrganizationApplication(ctx context.Context, or
 	return nil
 }
 
-// ListApplications retrieves all applications.
-func (a *Adapter) ListApplications(ctx context.Context) ([]models.Application, error) {
-	body, _, err := a.doRequest(ctx, requestConfig{
+// ListApplications returns an iterator for paginating through all applications.
+func (a *Adapter) ListApplications(config IteratorConfig) *Iterator[models.Application] {
+	return NewIterator(a.listApplicationsPaginated, config)
+}
+
+// listApplicationsPaginated returns applications with pagination support
+func (a *Adapter) listApplicationsPaginated(ctx context.Context, page, pageSize int) (PageResult[models.Application], error) {
+	result, err := a.doRequestFull(ctx, requestConfig{
 		method: http.MethodGet,
 		path:   "/api/applications",
+		query: url.Values{
+			"page":      {fmt.Sprintf("%d", page)},
+			"page_size": {fmt.Sprintf("%d", pageSize)},
+		},
 	})
 	if err != nil {
-		return nil, err
+		return PageResult[models.Application]{}, err
 	}
 
 	var apps []models.Application
-	if err := json.Unmarshal(body, &apps); err != nil {
-		return nil, fmt.Errorf("unmarshal applications: %w", err)
+	if err := json.Unmarshal(result.Body, &apps); err != nil {
+		return PageResult[models.Application]{}, fmt.Errorf("unmarshal applications: %w", err)
 	}
 
-	return apps, nil
+	return PageResult[models.Application]{
+		Items: apps,
+		Total: getTotalFromHeaders(result.Headers),
+	}, nil
 }
 
 // CreateApplication creates a new application in Logto
@@ -532,22 +558,34 @@ func (a *Adapter) GetRole(ctx context.Context, roleID string) (*models.Role, err
 	return parseRoleResponse(body)
 }
 
-// ListRoles lists all global roles
-func (a *Adapter) ListRoles(ctx context.Context) ([]models.Role, error) {
-	body, _, err := a.doRequest(ctx, requestConfig{
+// ListRoles returns an iterator for paginating through all global roles.
+func (a *Adapter) ListRoles(config IteratorConfig) *Iterator[models.Role] {
+	return NewIterator(a.listRolesPaginated, config)
+}
+
+// listRolesPaginated returns roles with pagination support
+func (a *Adapter) listRolesPaginated(ctx context.Context, page, pageSize int) (PageResult[models.Role], error) {
+	result, err := a.doRequestFull(ctx, requestConfig{
 		method: http.MethodGet,
 		path:   "/api/roles",
+		query: url.Values{
+			"page":      {fmt.Sprintf("%d", page)},
+			"page_size": {fmt.Sprintf("%d", pageSize)},
+		},
 	})
 	if err != nil {
-		return nil, err
+		return PageResult[models.Role]{}, err
 	}
 
 	var roles []models.Role
-	if err := json.Unmarshal(body, &roles); err != nil {
-		return nil, fmt.Errorf("unmarshal roles: %w", err)
+	if err := json.Unmarshal(result.Body, &roles); err != nil {
+		return PageResult[models.Role]{}, fmt.Errorf("unmarshal roles: %w", err)
 	}
 
-	return roles, nil
+	return PageResult[models.Role]{
+		Items: roles,
+		Total: getTotalFromHeaders(result.Headers),
+	}, nil
 }
 
 // CreateRole creates a new global role
@@ -603,27 +641,41 @@ func (a *Adapter) DeleteRole(ctx context.Context, roleID string) error {
 	return err
 }
 
-// ListRoleScopes lists API resource scopes assigned to a role
-func (a *Adapter) ListRoleScopes(ctx context.Context, roleID string) ([]models.APIResourceScope, error) {
-	if roleID == "" {
-		return nil, &ValidationError{Field: "roleID", Message: "cannot be empty"}
+// ListRoleScopes returns an iterator for API resource scopes assigned to a role.
+func (a *Adapter) ListRoleScopes(roleID string, config IteratorConfig) *Iterator[models.APIResourceScope] {
+	fetcher := func(ctx context.Context, page, pageSize int) (PageResult[models.APIResourceScope], error) {
+		if roleID == "" {
+			return PageResult[models.APIResourceScope]{}, &ValidationError{Field: "roleID", Message: "cannot be empty"}
+		}
+		return a.listRoleScopesPaginated(ctx, roleID, page, pageSize)
 	}
+	return NewIterator(fetcher, config)
+}
 
-	body, _, err := a.doRequest(ctx, requestConfig{
+// listRoleScopesPaginated returns role scopes with pagination support
+func (a *Adapter) listRoleScopesPaginated(ctx context.Context, roleID string, page, pageSize int) (PageResult[models.APIResourceScope], error) {
+	result, err := a.doRequestFull(ctx, requestConfig{
 		method:     http.MethodGet,
 		path:       "/api/roles/%s/scopes",
 		pathParams: []string{roleID},
+		query: url.Values{
+			"page":      {fmt.Sprintf("%d", page)},
+			"page_size": {fmt.Sprintf("%d", pageSize)},
+		},
 	})
 	if err != nil {
-		return nil, err
+		return PageResult[models.APIResourceScope]{}, err
 	}
 
 	var scopes []models.APIResourceScope
-	if err := json.Unmarshal(body, &scopes); err != nil {
-		return nil, fmt.Errorf("unmarshal role scopes: %w", err)
+	if err := json.Unmarshal(result.Body, &scopes); err != nil {
+		return PageResult[models.APIResourceScope]{}, fmt.Errorf("unmarshal role scopes: %w", err)
 	}
 
-	return scopes, nil
+	return PageResult[models.APIResourceScope]{
+		Items: scopes,
+		Total: getTotalFromHeaders(result.Headers),
+	}, nil
 }
 
 // AssignRoleScopes assigns API resource scopes to a role
@@ -665,27 +717,41 @@ func (a *Adapter) RemoveScopeFromRole(ctx context.Context, roleID, scopeID strin
 	return err
 }
 
-// ListRoleUsers lists users assigned to a role
-func (a *Adapter) ListRoleUsers(ctx context.Context, roleID string) ([]models.User, error) {
-	if roleID == "" {
-		return nil, &ValidationError{Field: "roleID", Message: "cannot be empty"}
+// ListRoleUsers returns an iterator for users assigned to a role.
+func (a *Adapter) ListRoleUsers(roleID string, config IteratorConfig) *Iterator[models.User] {
+	fetcher := func(ctx context.Context, page, pageSize int) (PageResult[models.User], error) {
+		if roleID == "" {
+			return PageResult[models.User]{}, &ValidationError{Field: "roleID", Message: "cannot be empty"}
+		}
+		return a.listRoleUsersPaginated(ctx, roleID, page, pageSize)
 	}
+	return NewIterator(fetcher, config)
+}
 
-	body, _, err := a.doRequest(ctx, requestConfig{
+// listRoleUsersPaginated returns role users with pagination support
+func (a *Adapter) listRoleUsersPaginated(ctx context.Context, roleID string, page, pageSize int) (PageResult[models.User], error) {
+	result, err := a.doRequestFull(ctx, requestConfig{
 		method:     http.MethodGet,
 		path:       "/api/roles/%s/users",
 		pathParams: []string{roleID},
+		query: url.Values{
+			"page":      {fmt.Sprintf("%d", page)},
+			"page_size": {fmt.Sprintf("%d", pageSize)},
+		},
 	})
 	if err != nil {
-		return nil, err
+		return PageResult[models.User]{}, err
 	}
 
 	var users []models.User
-	if err := json.Unmarshal(body, &users); err != nil {
-		return nil, fmt.Errorf("unmarshal role users: %w", err)
+	if err := json.Unmarshal(result.Body, &users); err != nil {
+		return PageResult[models.User]{}, fmt.Errorf("unmarshal role users: %w", err)
 	}
 
-	return users, nil
+	return PageResult[models.User]{
+		Items: users,
+		Total: getTotalFromHeaders(result.Headers),
+	}, nil
 }
 
 // AssignRoleToUsers assigns a role to users
@@ -727,27 +793,41 @@ func (a *Adapter) RemoveRoleFromUser(ctx context.Context, roleID, userID string)
 	return err
 }
 
-// ListRoleApplications lists M2M applications assigned to a role
-func (a *Adapter) ListRoleApplications(ctx context.Context, roleID string) ([]models.Application, error) {
-	if roleID == "" {
-		return nil, &ValidationError{Field: "roleID", Message: "cannot be empty"}
+// ListRoleApplications returns an iterator for M2M applications assigned to a role.
+func (a *Adapter) ListRoleApplications(roleID string, config IteratorConfig) *Iterator[models.Application] {
+	fetcher := func(ctx context.Context, page, pageSize int) (PageResult[models.Application], error) {
+		if roleID == "" {
+			return PageResult[models.Application]{}, &ValidationError{Field: "roleID", Message: "cannot be empty"}
+		}
+		return a.listRoleApplicationsPaginated(ctx, roleID, page, pageSize)
 	}
+	return NewIterator(fetcher, config)
+}
 
-	body, _, err := a.doRequest(ctx, requestConfig{
+// listRoleApplicationsPaginated returns role applications with pagination support
+func (a *Adapter) listRoleApplicationsPaginated(ctx context.Context, roleID string, page, pageSize int) (PageResult[models.Application], error) {
+	result, err := a.doRequestFull(ctx, requestConfig{
 		method:     http.MethodGet,
 		path:       "/api/roles/%s/applications",
 		pathParams: []string{roleID},
+		query: url.Values{
+			"page":      {fmt.Sprintf("%d", page)},
+			"page_size": {fmt.Sprintf("%d", pageSize)},
+		},
 	})
 	if err != nil {
-		return nil, err
+		return PageResult[models.Application]{}, err
 	}
 
 	var apps []models.Application
-	if err := json.Unmarshal(body, &apps); err != nil {
-		return nil, fmt.Errorf("unmarshal role applications: %w", err)
+	if err := json.Unmarshal(result.Body, &apps); err != nil {
+		return PageResult[models.Application]{}, fmt.Errorf("unmarshal role applications: %w", err)
 	}
 
-	return apps, nil
+	return PageResult[models.Application]{
+		Items: apps,
+		Total: getTotalFromHeaders(result.Headers),
+	}, nil
 }
 
 // AssignRoleToApplications assigns a role to M2M applications
@@ -835,27 +915,41 @@ func (a *Adapter) CreateOrganizationInvitation(ctx context.Context, invitation m
 	return parseInvitationResponse(body)
 }
 
-// ListOrganizationInvitations lists invitations for an organization.
-func (a *Adapter) ListOrganizationInvitations(ctx context.Context, orgID string) ([]models.OrganizationInvitation, error) {
-	if orgID == "" {
-		return nil, &ValidationError{Field: "orgID", Message: "cannot be empty"}
+// ListOrganizationInvitations returns an iterator for invitations for an organization.
+func (a *Adapter) ListOrganizationInvitations(orgID string, config IteratorConfig) *Iterator[models.OrganizationInvitation] {
+	fetcher := func(ctx context.Context, page, pageSize int) (PageResult[models.OrganizationInvitation], error) {
+		if orgID == "" {
+			return PageResult[models.OrganizationInvitation]{}, &ValidationError{Field: "orgID", Message: "cannot be empty"}
+		}
+		return a.listOrganizationInvitationsPaginated(ctx, orgID, page, pageSize)
 	}
+	return NewIterator(fetcher, config)
+}
 
-	body, _, err := a.doRequest(ctx, requestConfig{
+// listOrganizationInvitationsPaginated returns organization invitations with pagination support
+func (a *Adapter) listOrganizationInvitationsPaginated(ctx context.Context, orgID string, page, pageSize int) (PageResult[models.OrganizationInvitation], error) {
+	result, err := a.doRequestFull(ctx, requestConfig{
 		method: http.MethodGet,
 		path:   "/api/organization-invitations",
-		query:  url.Values{"organizationId": {orgID}},
+		query: url.Values{
+			"organizationId": {orgID},
+			"page":           {fmt.Sprintf("%d", page)},
+			"page_size":      {fmt.Sprintf("%d", pageSize)},
+		},
 	})
 	if err != nil {
-		return nil, err
+		return PageResult[models.OrganizationInvitation]{}, err
 	}
 
 	var invitations []models.OrganizationInvitation
-	if err := json.Unmarshal(body, &invitations); err != nil {
-		return nil, fmt.Errorf("unmarshal invitations: %w", err)
+	if err := json.Unmarshal(result.Body, &invitations); err != nil {
+		return PageResult[models.OrganizationInvitation]{}, fmt.Errorf("unmarshal invitations: %w", err)
 	}
 
-	return invitations, nil
+	return PageResult[models.OrganizationInvitation]{
+		Items: invitations,
+		Total: getTotalFromHeaders(result.Headers),
+	}, nil
 }
 
 // GetOrganizationInvitation retrieves a single invitation by ID
@@ -965,26 +1059,3 @@ func parseApplicationResponse(data []byte) (*models.Application, error) {
 	return &app, nil
 }
 
-// Iterator factory methods
-
-// ListUsersIter returns an iterator for paginating through users.
-// Use iter.Next(ctx) to iterate through results.
-func (a *Adapter) ListUsersIter(pageSize int) *UserIterator {
-	return &UserIterator{
-		adapter:  a,
-		pageSize: pageSize,
-		page:     0,
-		index:    -1,
-	}
-}
-
-// ListOrganizationsIter returns an iterator for paginating through organizations.
-// Use iter.Next(ctx) to iterate through results.
-func (a *Adapter) ListOrganizationsIter(pageSize int) *OrganizationIterator {
-	return &OrganizationIterator{
-		adapter:  a,
-		pageSize: pageSize,
-		page:     0,
-		index:    -1,
-	}
-}

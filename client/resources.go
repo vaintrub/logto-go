@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 
 	"github.com/vaintrub/logto-go/models"
 )
@@ -27,22 +28,34 @@ func (a *Adapter) GetAPIResource(ctx context.Context, resourceID string) (*model
 	return parseAPIResourceResponse(body)
 }
 
-// ListAPIResources lists all API resources.
-func (a *Adapter) ListAPIResources(ctx context.Context) ([]models.APIResource, error) {
-	body, _, err := a.doRequest(ctx, requestConfig{
+// ListAPIResources returns an iterator for all API resources.
+func (a *Adapter) ListAPIResources(config IteratorConfig) *Iterator[models.APIResource] {
+	return NewIterator(a.listAPIResourcesPaginated, config)
+}
+
+// listAPIResourcesPaginated returns API resources with pagination support
+func (a *Adapter) listAPIResourcesPaginated(ctx context.Context, page, pageSize int) (PageResult[models.APIResource], error) {
+	result, err := a.doRequestFull(ctx, requestConfig{
 		method: http.MethodGet,
 		path:   "/api/resources",
+		query: url.Values{
+			"page":      {fmt.Sprintf("%d", page)},
+			"page_size": {fmt.Sprintf("%d", pageSize)},
+		},
 	})
 	if err != nil {
-		return nil, err
+		return PageResult[models.APIResource]{}, err
 	}
 
 	var resources []models.APIResource
-	if err := json.Unmarshal(body, &resources); err != nil {
-		return nil, fmt.Errorf("unmarshal API resources: %w", err)
+	if err := json.Unmarshal(result.Body, &resources); err != nil {
+		return PageResult[models.APIResource]{}, fmt.Errorf("unmarshal API resources: %w", err)
 	}
 
-	return resources, nil
+	return PageResult[models.APIResource]{
+		Items: resources,
+		Total: getTotalFromHeaders(result.Headers),
+	}, nil
 }
 
 // CreateAPIResource creates a new API resource
@@ -102,46 +115,63 @@ func (a *Adapter) DeleteAPIResource(ctx context.Context, resourceID string) erro
 
 // GetAPIResourceScope retrieves a single scope for an API resource
 func (a *Adapter) GetAPIResourceScope(ctx context.Context, resourceID, scopeID string) (*models.APIResourceScope, error) {
+	if resourceID == "" {
+		return nil, &ValidationError{Field: "resourceID", Message: "cannot be empty"}
+	}
 	if scopeID == "" {
 		return nil, &ValidationError{Field: "scopeID", Message: "cannot be empty"}
 	}
 	// Logto API doesn't have a direct GET endpoint for individual scopes,
 	// so we list all scopes and find the one we need
-	scopes, err := a.ListAPIResourceScopes(ctx, resourceID)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, scope := range scopes {
+	iter := a.ListAPIResourceScopes(resourceID, DefaultIteratorConfig())
+	for iter.Next(ctx) {
+		scope := iter.Item()
 		if scope.ID == scopeID {
-			return &scope, nil
+			return scope, nil
 		}
+	}
+	if err := iter.Err(); err != nil {
+		return nil, err
 	}
 
 	return nil, &APIError{StatusCode: 404, Message: fmt.Sprintf("API resource scope not found: %s", scopeID)}
 }
 
-// ListAPIResourceScopes lists all scopes for an API resource
-func (a *Adapter) ListAPIResourceScopes(ctx context.Context, resourceID string) ([]models.APIResourceScope, error) {
-	if resourceID == "" {
-		return nil, &ValidationError{Field: "resourceID", Message: "cannot be empty"}
+// ListAPIResourceScopes returns an iterator for all scopes for an API resource.
+func (a *Adapter) ListAPIResourceScopes(resourceID string, config IteratorConfig) *Iterator[models.APIResourceScope] {
+	fetcher := func(ctx context.Context, page, pageSize int) (PageResult[models.APIResourceScope], error) {
+		if resourceID == "" {
+			return PageResult[models.APIResourceScope]{}, &ValidationError{Field: "resourceID", Message: "cannot be empty"}
+		}
+		return a.listAPIResourceScopesPaginated(ctx, resourceID, page, pageSize)
 	}
+	return NewIterator(fetcher, config)
+}
 
-	body, _, err := a.doRequest(ctx, requestConfig{
+// listAPIResourceScopesPaginated returns API resource scopes with pagination support
+func (a *Adapter) listAPIResourceScopesPaginated(ctx context.Context, resourceID string, page, pageSize int) (PageResult[models.APIResourceScope], error) {
+	result, err := a.doRequestFull(ctx, requestConfig{
 		method:     http.MethodGet,
 		path:       "/api/resources/%s/scopes",
 		pathParams: []string{resourceID},
+		query: url.Values{
+			"page":      {fmt.Sprintf("%d", page)},
+			"page_size": {fmt.Sprintf("%d", pageSize)},
+		},
 	})
 	if err != nil {
-		return nil, err
+		return PageResult[models.APIResourceScope]{}, err
 	}
 
 	var scopes []models.APIResourceScope
-	if err := json.Unmarshal(body, &scopes); err != nil {
-		return nil, fmt.Errorf("unmarshal API resource scopes: %w", err)
+	if err := json.Unmarshal(result.Body, &scopes); err != nil {
+		return PageResult[models.APIResourceScope]{}, fmt.Errorf("unmarshal API resource scopes: %w", err)
 	}
 
-	return scopes, nil
+	return PageResult[models.APIResourceScope]{
+		Items: scopes,
+		Total: getTotalFromHeaders(result.Headers),
+	}, nil
 }
 
 // CreateAPIResourceScope creates a new scope for an API resource

@@ -10,6 +10,20 @@ type OrganizationBranding struct {
 	DarkFavicon string `json:"darkFavicon"`
 }
 
+// OrganizationColor represents the color scheme settings for an organization.
+type OrganizationColor struct {
+	PrimaryColor      string `json:"primaryColor,omitempty"`
+	IsDarkModeEnabled bool   `json:"isDarkModeEnabled,omitempty"`
+	DarkPrimaryColor  string `json:"darkPrimaryColor,omitempty"`
+}
+
+// OrganizationRoleInfo represents brief information about an organization role.
+// This is returned as part of Organization when roles are included.
+type OrganizationRoleInfo struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
 // Organization represents organization details from Logto.
 type Organization struct {
 	ID            string                 `json:"id"`
@@ -20,6 +34,10 @@ type Organization struct {
 	IsMfaRequired bool                   `json:"isMfaRequired"`
 	Branding      *OrganizationBranding  `json:"branding"`
 	CreatedAt     UnixMilliTime          `json:"createdAt"`
+	// Optional fields returned with expanded queries
+	Color             *OrganizationColor     `json:"color,omitempty"`
+	CustomCSS         string                 `json:"customCss,omitempty"`
+	OrganizationRoles []OrganizationRoleInfo `json:"organizationRoles,omitempty"`
 }
 
 // UserOrganization represents an organization with the user's roles in it.

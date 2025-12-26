@@ -385,7 +385,7 @@ func TestListUsers_EmptyArray(t *testing.T) {
 	defer server.Close()
 
 	adapter := newTestAdapter(t, server.URL)
-	users, err := adapter.ListUsers(context.Background())
+	users, err := adapter.ListUsers(DefaultIteratorConfig()).Collect(context.Background())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -428,7 +428,7 @@ func TestUserIterator_Collect(t *testing.T) {
 
 	adapter := newTestAdapter(t, server.URL)
 	ctx := context.Background()
-	iter := adapter.ListUsersIter(10)
+	iter := adapter.ListUsers(IteratorConfig{PageSize: 10})
 
 	users, err := iter.Collect(ctx)
 	if err != nil {
@@ -469,14 +469,14 @@ func TestUserIterator_Next(t *testing.T) {
 
 	adapter := newTestAdapter(t, server.URL)
 	ctx := context.Background()
-	iter := adapter.ListUsersIter(10)
+	iter := adapter.ListUsers(IteratorConfig{PageSize: 10})
 
 	// First call to Next should succeed
 	if !iter.Next(ctx) {
 		t.Fatal("expected Next() to return true")
 	}
 
-	user := iter.User()
+	user := iter.Item()
 	if user == nil {
 		t.Fatal("expected user, got nil")
 	}
@@ -522,7 +522,7 @@ func TestUserIterator_Error(t *testing.T) {
 
 	adapter := newTestAdapter(t, server.URL)
 	ctx := context.Background()
-	iter := adapter.ListUsersIter(1)
+	iter := adapter.ListUsers(IteratorConfig{PageSize: 1})
 
 	// First page succeeds
 	if !iter.Next(ctx) {
@@ -687,12 +687,14 @@ func TestCRUDValidation_EmptyIDs(t *testing.T) {
 			return adapter.RemoveUserFromOrganization(context.Background(), "org-123", "")
 		}, "userID"},
 		{"ListOrganizationMembers empty orgID", func() error {
-			_, err := adapter.ListOrganizationMembers(context.Background(), "")
-			return err
+			iter := adapter.ListOrganizationMembers("", DefaultIteratorConfig())
+			iter.Next(context.Background())
+			return iter.Err()
 		}, "orgID"},
 		{"ListAPIResourceScopes empty resourceID", func() error {
-			_, err := adapter.ListAPIResourceScopes(context.Background(), "")
-			return err
+			iter := adapter.ListAPIResourceScopes("", DefaultIteratorConfig())
+			iter.Next(context.Background())
+			return iter.Err()
 		}, "resourceID"},
 		{"GetOrganizationRoleResourceScopes empty roleID", func() error {
 			_, err := adapter.GetOrganizationRoleResourceScopes(context.Background(), "")

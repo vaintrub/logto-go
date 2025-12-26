@@ -54,7 +54,7 @@ func TestRoleCRUD(t *testing.T) {
 	assert.Equal(t, "Updated description", updatedRole.Description)
 
 	// List roles
-	roles, err := testClient.ListRoles(ctx)
+	roles, err := testClient.ListRoles(client.DefaultIteratorConfig()).Collect(ctx)
 	require.NoError(t, err, "ListRoles should succeed")
 	assert.NotEmpty(t, roles)
 
@@ -129,7 +129,7 @@ func TestRoleScopes(t *testing.T) {
 	require.NoError(t, err, "AssignRoleScopes should succeed")
 
 	// List role scopes
-	scopes, err := testClient.ListRoleScopes(ctx, roleID)
+	scopes, err := testClient.ListRoleScopes(roleID, client.DefaultIteratorConfig()).Collect(ctx)
 	require.NoError(t, err, "ListRoleScopes should succeed")
 	assert.Len(t, scopes, 1)
 	assert.Equal(t, scopeID, scopes[0].ID)
@@ -138,7 +138,7 @@ func TestRoleScopes(t *testing.T) {
 	err = testClient.AssignRoleScopes(ctx, roleID, []string{scope2ID})
 	require.NoError(t, err)
 
-	scopes, err = testClient.ListRoleScopes(ctx, roleID)
+	scopes, err = testClient.ListRoleScopes(roleID, client.DefaultIteratorConfig()).Collect(ctx)
 	require.NoError(t, err)
 	assert.Len(t, scopes, 2)
 
@@ -147,7 +147,7 @@ func TestRoleScopes(t *testing.T) {
 	require.NoError(t, err, "RemoveScopeFromRole should succeed")
 
 	// Verify removal
-	scopes, err = testClient.ListRoleScopes(ctx, roleID)
+	scopes, err = testClient.ListRoleScopes(roleID, client.DefaultIteratorConfig()).Collect(ctx)
 	require.NoError(t, err)
 	assert.Len(t, scopes, 1)
 	assert.Equal(t, scope2ID, scopes[0].ID)
@@ -193,7 +193,7 @@ func TestRoleUsers(t *testing.T) {
 	require.NoError(t, err, "AssignRoleToUsers should succeed")
 
 	// List role users
-	users, err := testClient.ListRoleUsers(ctx, roleID)
+	users, err := testClient.ListRoleUsers(roleID, client.DefaultIteratorConfig()).Collect(ctx)
 	require.NoError(t, err, "ListRoleUsers should succeed")
 	assert.Len(t, users, 2)
 
@@ -210,7 +210,7 @@ func TestRoleUsers(t *testing.T) {
 	require.NoError(t, err, "RemoveRoleFromUser should succeed")
 
 	// Verify removal
-	users, err = testClient.ListRoleUsers(ctx, roleID)
+	users, err = testClient.ListRoleUsers(roleID, client.DefaultIteratorConfig()).Collect(ctx)
 	require.NoError(t, err)
 	assert.Len(t, users, 1)
 	assert.Equal(t, user2ID, users[0].ID)
@@ -256,7 +256,7 @@ func TestRoleApplications(t *testing.T) {
 	require.NoError(t, err, "AssignRoleToApplications should succeed")
 
 	// List role applications
-	apps, err := testClient.ListRoleApplications(ctx, roleID)
+	apps, err := testClient.ListRoleApplications(roleID, client.DefaultIteratorConfig()).Collect(ctx)
 	require.NoError(t, err, "ListRoleApplications should succeed")
 	assert.Len(t, apps, 2)
 
@@ -273,7 +273,7 @@ func TestRoleApplications(t *testing.T) {
 	require.NoError(t, err, "RemoveRoleFromApplication should succeed")
 
 	// Verify removal
-	apps, err = testClient.ListRoleApplications(ctx, roleID)
+	apps, err = testClient.ListRoleApplications(roleID, client.DefaultIteratorConfig()).Collect(ctx)
 	require.NoError(t, err)
 	assert.Len(t, apps, 1)
 	assert.Equal(t, app2ID, apps[0].ID)
@@ -319,7 +319,7 @@ func TestCreateRoleWithScopes(t *testing.T) {
 	})
 
 	// Verify scope is assigned
-	scopes, err := testClient.ListRoleScopes(ctx, roleID)
+	scopes, err := testClient.ListRoleScopes(roleID, client.DefaultIteratorConfig()).Collect(ctx)
 	require.NoError(t, err)
 	assert.Len(t, scopes, 1)
 	assert.Equal(t, scopeID, scopes[0].ID)
@@ -376,7 +376,9 @@ func TestCreateRole_Validation(t *testing.T) {
 func TestListRoleScopes_Validation(t *testing.T) {
 	ctx := context.Background()
 
-	_, err := testClient.ListRoleScopes(ctx, "")
+	iter := testClient.ListRoleScopes("", client.DefaultIteratorConfig())
+	iter.Next(ctx)
+	err := iter.Err()
 	require.Error(t, err, "ListRoleScopes with empty roleID should fail")
 	var validationErr *client.ValidationError
 	require.ErrorAs(t, err, &validationErr)
@@ -429,7 +431,9 @@ func TestRemoveScopeFromRole_Validation(t *testing.T) {
 func TestListRoleUsers_Validation(t *testing.T) {
 	ctx := context.Background()
 
-	_, err := testClient.ListRoleUsers(ctx, "")
+	iter := testClient.ListRoleUsers("", client.DefaultIteratorConfig())
+	iter.Next(ctx)
+	err := iter.Err()
 	require.Error(t, err, "ListRoleUsers with empty roleID should fail")
 	var validationErr *client.ValidationError
 	require.ErrorAs(t, err, &validationErr)
@@ -482,7 +486,9 @@ func TestRemoveRoleFromUser_Validation(t *testing.T) {
 func TestListRoleApplications_Validation(t *testing.T) {
 	ctx := context.Background()
 
-	_, err := testClient.ListRoleApplications(ctx, "")
+	iter := testClient.ListRoleApplications("", client.DefaultIteratorConfig())
+	iter.Next(ctx)
+	err := iter.Err()
 	require.Error(t, err, "ListRoleApplications with empty roleID should fail")
 	var validationErr *client.ValidationError
 	require.ErrorAs(t, err, &validationErr)

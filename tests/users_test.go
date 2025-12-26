@@ -60,7 +60,7 @@ func TestUserCRUD(t *testing.T) {
 	require.NoError(t, err, "UpdateUser with CustomData should succeed")
 
 	// List users
-	users, err := testClient.ListUsers(ctx)
+	users, err := testClient.ListUsers(client.DefaultIteratorConfig()).Collect(ctx)
 	require.NoError(t, err, "ListUsers should succeed")
 	assert.NotEmpty(t, users, "Should have at least one user")
 

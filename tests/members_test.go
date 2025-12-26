@@ -43,13 +43,13 @@ func TestOrganizationMembership(t *testing.T) {
 	require.NoError(t, err, "AddUserToOrganization should succeed")
 
 	// List organization members
-	members, err := testClient.ListOrganizationMembers(ctx, orgID)
+	members, err := testClient.ListOrganizationMembers(orgID, client.DefaultIteratorConfig()).Collect(ctx)
 	require.NoError(t, err, "ListOrganizationMembers should succeed")
 	assert.Len(t, members, 1, "Should have one member")
 	assert.Equal(t, userID, members[0].User.ID)
 
 	// List user organizations
-	userOrgs, err := testClient.ListUserOrganizations(ctx, userID)
+	userOrgs, err := testClient.ListUserOrganizations(userID, client.DefaultIteratorConfig()).Collect(ctx)
 	require.NoError(t, err, "ListUserOrganizations should succeed")
 	found := false
 	for _, o := range userOrgs {
@@ -65,7 +65,7 @@ func TestOrganizationMembership(t *testing.T) {
 	require.NoError(t, err, "RemoveUserFromOrganization should succeed")
 
 	// Verify removal
-	members, err = testClient.ListOrganizationMembers(ctx, orgID)
+	members, err = testClient.ListOrganizationMembers(orgID, client.DefaultIteratorConfig()).Collect(ctx)
 	require.NoError(t, err)
 	assert.Len(t, members, 0, "Should have no members after removal")
 }
@@ -105,7 +105,7 @@ func TestBatchOrganizationOperations(t *testing.T) {
 	require.NoError(t, err, "AddUsersToOrganization should succeed")
 
 	// Verify both users are members
-	members, err := testClient.ListOrganizationMembers(ctx, orgID)
+	members, err := testClient.ListOrganizationMembers(orgID, client.DefaultIteratorConfig()).Collect(ctx)
 	require.NoError(t, err)
 	assert.Len(t, members, 2, "Should have two members")
 
@@ -242,7 +242,7 @@ func TestListOrganizationMembersWithRoles(t *testing.T) {
 	require.NoError(t, err)
 
 	// List members and verify roles are included
-	members, err := testClient.ListOrganizationMembers(ctx, orgID)
+	members, err := testClient.ListOrganizationMembers(orgID, client.DefaultIteratorConfig()).Collect(ctx)
 	require.NoError(t, err)
 	require.Len(t, members, 1)
 
@@ -596,7 +596,9 @@ func TestGetUserRolesInOrganization_Validation(t *testing.T) {
 func TestListOrganizationMembers_Validation(t *testing.T) {
 	ctx := context.Background()
 
-	_, err := testClient.ListOrganizationMembers(ctx, "")
+	iter := testClient.ListOrganizationMembers("", client.DefaultIteratorConfig())
+	iter.Next(ctx)
+	err := iter.Err()
 	require.Error(t, err, "ListOrganizationMembers with empty orgID should fail")
 	var validationErr *client.ValidationError
 	require.ErrorAs(t, err, &validationErr)
