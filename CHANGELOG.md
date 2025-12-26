@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.1.3](https://github.com/vaintrub/logto-go/compare/v1.1.2...v1.1.3) (2025-12-26)
+
+
+### Features
+
+* added full models & iterator ([b82b7cc](https://github.com/vaintrub/logto-go/commit/b82b7cc4aec7e396b93a85410846b9069c717f02))
+* added jwt customizer methods ([3c68e07](https://github.com/vaintrub/logto-go/commit/3c68e07e3ac00a0508b0f99cfb7a7a0c6ef20006))
+* added jwt customizer methods ([a80beec](https://github.com/vaintrub/logto-go/commit/a80beec6f1297a53c39432b063bfc4c0c7c1df6b))
+
+
+### Bug Fixes
+
+* client/impersonation ([3048435](https://github.com/vaintrub/logto-go/commit/30484352058f6fafec1253f0482b525c7dd26481))
+* testcontainer ([f8e4786](https://github.com/vaintrub/logto-go/commit/f8e4786bbbcb66ba123e1cc577a153fbf97127e0))
+* use testcontainers HostInternal for cross-platform container-to-host communication ([82ad043](https://github.com/vaintrub/logto-go/commit/82ad0433f9016645356bc87100d135aacd8c9285))
+
+
+### Miscellaneous Chores
+
+* release 1.1.3 ([d19d80a](https://github.com/vaintrub/logto-go/commit/d19d80afb63a516ebe16c952b2edff3d0c3f315b))
+
 ## [1.1.2](https://github.com/vaintrub/logto-go/compare/v1.1.1...v1.1.2) (2025-12-24)
 
 
