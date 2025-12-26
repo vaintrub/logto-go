@@ -155,6 +155,15 @@ type Client interface {
 	ExchangeSubjectToken(ctx context.Context, subjectToken string, opts ...TokenExchangeOption) (*TokenResult, error)
 	// GetUserAccessToken is a convenience method combining CreateSubjectToken and ExchangeSubjectToken.
 	GetUserAccessToken(ctx context.Context, userID string, opts ...TokenExchangeOption) (*TokenResult, error)
+
+	// JWT Customizer (PUT/GET/DELETE /api/configs/jwt-customizer/{tokenType})
+	// UpsertJWTCustomizer creates or updates a JWT customizer for the given token type.
+	// tokenType: "access-token" or "client-credentials"
+	UpsertJWTCustomizer(ctx context.Context, tokenType string, config JWTCustomizerConfig) error
+	// GetJWTCustomizer retrieves the JWT customizer configuration. Returns nil if not configured.
+	GetJWTCustomizer(ctx context.Context, tokenType string) (*JWTCustomizerConfig, error)
+	// DeleteJWTCustomizer removes the JWT customizer for the given token type.
+	DeleteJWTCustomizer(ctx context.Context, tokenType string) error
 }
 
 // m2mTokenCache holds cached M2M access tokens (internal use only)
