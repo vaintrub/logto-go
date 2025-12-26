@@ -6,6 +6,7 @@ import (
 	"context"
 	_ "embed"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"text/template"
@@ -49,6 +50,7 @@ type Env struct {
 func Setup(ctx context.Context) (*Env, error) {
 	env := &Env{}
 
+	log.Println("Step 1/6: Starting PostgreSQL container...")
 	// 1. Start PostgreSQL container
 	postgresReq := testcontainers.ContainerRequest{
 		Image:        "postgres:16-alpine",
@@ -71,6 +73,7 @@ func Setup(ctx context.Context) (*Env, error) {
 		return nil, fmt.Errorf("failed to start PostgreSQL container: %w", err)
 	}
 	env.PostgresContainer = postgresContainer
+	log.Println("Step 1/6: PostgreSQL container started")
 
 	// Get PostgreSQL connection info
 	postgresHost, err := postgresContainer.Host(ctx)
@@ -96,6 +99,7 @@ func Setup(ctx context.Context) (*Env, error) {
 	postgresInternalURL := fmt.Sprintf("postgres://%s:%s@%s:5432/%s",
 		postgresUser, postgresPassword, postgresInternalIP, postgresDB)
 
+	log.Println("Step 2/6: Running Logto database seed...")
 	// 2. Run Logto CLI to seed the database (creates tables)
 	// Logto Docker image expects commands passed to its entrypoint
 	seedReq := testcontainers.ContainerRequest{
@@ -135,13 +139,17 @@ func Setup(ctx context.Context) (*Env, error) {
 		env.Teardown(ctx)
 		return nil, fmt.Errorf("seed failed with exit code %d", code.ExitCode)
 	}
+	log.Println("Step 2/6: Database seed completed")
 
+	log.Println("Step 3/6: Bootstrapping M2M application...")
 	// 3. Bootstrap M2M application via direct SQL (tables now exist!)
 	if err := bootstrapM2MApp(ctx, env.PostgresURL); err != nil {
 		env.Teardown(ctx)
 		return nil, fmt.Errorf("failed to bootstrap M2M app: %w", err)
 	}
+	log.Println("Step 3/6: M2M application bootstrapped")
 
+	log.Println("Step 4/6: Starting Logto server...")
 	// 4. Start Logto server
 	logtoReq := testcontainers.ContainerRequest{
 		Image:        "svhd/logto:latest",
@@ -182,13 +190,17 @@ func Setup(ctx context.Context) (*Env, error) {
 		return nil, fmt.Errorf("failed to get Logto port: %w", err)
 	}
 	env.LogtoEndpoint = fmt.Sprintf("http://%s:%s", logtoHost, logtoPort.Port())
+	log.Printf("Step 4/6: Logto server started at %s", env.LogtoEndpoint)
 
+	log.Println("Step 5/6: Waiting for Logto to be ready...")
 	// 5. Wait for Logto to fully initialize
 	if err := waitForLogtoReady(ctx, env.LogtoEndpoint, 60*time.Second); err != nil {
 		env.Teardown(ctx)
 		return nil, fmt.Errorf("logto not ready: %w", err)
 	}
+	log.Println("Step 5/6: Logto is ready")
 
+	log.Println("Step 6/6: Creating Logto client...")
 	// 6. Create Logto client
 	c, err := client.New(env.LogtoEndpoint, testM2MAppID, testM2MAppSecret,
 		client.WithTimeout(30*time.Second),
