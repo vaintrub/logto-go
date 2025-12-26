@@ -56,6 +56,9 @@ func New(endpoint, m2mAppID, m2mAppSecret string, opts ...Option) (*Adapter, err
 		transport.MaxIdleConns = 100
 		transport.MaxIdleConnsPerHost = 100
 		transport.MaxConnsPerHost = 100
+		// Add transport-level timeouts to prevent hanging connections in Docker/CI
+		transport.ResponseHeaderTimeout = o.responseHeaderTimeout
+		transport.IdleConnTimeout = o.idleConnTimeout
 		httpClient = &http.Client{
 			Timeout:   o.timeout,
 			Transport: transport,

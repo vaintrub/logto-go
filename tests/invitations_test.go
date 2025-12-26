@@ -15,7 +15,8 @@ import (
 
 // TestOrganizationInvitations tests invitation lifecycle
 func TestOrganizationInvitations(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
 
 	// Create organization
 	createdOrg, err := testClient.CreateOrganization(ctx, models.OrganizationCreate{
@@ -66,7 +67,8 @@ func TestOrganizationInvitations(t *testing.T) {
 
 // TestSendInvitationMessage tests sending invitation email
 func TestSendInvitationMessage(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
 
 	// Create organization
 	createdOrg, err := testClient.CreateOrganization(ctx, models.OrganizationCreate{
@@ -111,7 +113,8 @@ func TestSendInvitationMessage(t *testing.T) {
 
 // TestCreateOrganizationInvitation_Validation tests validation errors
 func TestCreateOrganizationInvitation_Validation(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 
 	t.Run("empty organizationId", func(t *testing.T) {
 		_, err := testClient.CreateOrganizationInvitation(ctx, models.OrganizationInvitationCreate{
@@ -140,7 +143,8 @@ func TestCreateOrganizationInvitation_Validation(t *testing.T) {
 
 // TestListOrganizationInvitations_Validation tests validation errors
 func TestListOrganizationInvitations_Validation(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 
 	iter := testClient.ListOrganizationInvitations("", client.DefaultIteratorConfig())
 	iter.Next(ctx)
@@ -153,7 +157,8 @@ func TestListOrganizationInvitations_Validation(t *testing.T) {
 
 // TestGetOrganizationInvitation_Validation tests validation errors
 func TestGetOrganizationInvitation_Validation(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 
 	_, err := testClient.GetOrganizationInvitation(ctx, "")
 	require.Error(t, err, "GetOrganizationInvitation with empty invitationID should fail")
@@ -164,7 +169,8 @@ func TestGetOrganizationInvitation_Validation(t *testing.T) {
 
 // TestDeleteOrganizationInvitation_Validation tests validation errors
 func TestDeleteOrganizationInvitation_Validation(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 
 	err := testClient.DeleteOrganizationInvitation(ctx, "")
 	require.Error(t, err, "DeleteOrganizationInvitation with empty invitationID should fail")
@@ -175,7 +181,8 @@ func TestDeleteOrganizationInvitation_Validation(t *testing.T) {
 
 // TestSendInvitationMessage_Validation tests validation errors
 func TestSendInvitationMessage_Validation(t *testing.T) {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 
 	t.Run("empty invitationID", func(t *testing.T) {
 		err := testClient.SendInvitationMessage(ctx, "", "https://example.com/invite")

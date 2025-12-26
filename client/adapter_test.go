@@ -154,6 +154,44 @@ func TestNew_Options(t *testing.T) {
 			t.Error("expected custom HTTP client to be used")
 		}
 	})
+
+	t.Run("WithResponseHeaderTimeout sets responseHeaderTimeout", func(t *testing.T) {
+		adapter, _ := New("http://localhost", "app-id", "secret", WithResponseHeaderTimeout(45*time.Second))
+		if adapter.opts.responseHeaderTimeout != 45*time.Second {
+			t.Errorf("expected responseHeaderTimeout 45s, got %v", adapter.opts.responseHeaderTimeout)
+		}
+	})
+
+	t.Run("WithIdleConnTimeout sets idleConnTimeout", func(t *testing.T) {
+		adapter, _ := New("http://localhost", "app-id", "secret", WithIdleConnTimeout(120*time.Second))
+		if adapter.opts.idleConnTimeout != 120*time.Second {
+			t.Errorf("expected idleConnTimeout 120s, got %v", adapter.opts.idleConnTimeout)
+		}
+	})
+
+	t.Run("defaults include transport timeouts", func(t *testing.T) {
+		adapter, _ := New("http://localhost", "app-id", "secret")
+		if adapter.opts.responseHeaderTimeout != 30*time.Second {
+			t.Errorf("expected default responseHeaderTimeout 30s, got %v", adapter.opts.responseHeaderTimeout)
+		}
+		if adapter.opts.idleConnTimeout != 90*time.Second {
+			t.Errorf("expected default idleConnTimeout 90s, got %v", adapter.opts.idleConnTimeout)
+		}
+	})
+
+	t.Run("zero values are ignored for transport timeouts", func(t *testing.T) {
+		adapter, _ := New("http://localhost", "app-id", "secret",
+			WithResponseHeaderTimeout(0),
+			WithIdleConnTimeout(-1*time.Second),
+		)
+		// Should keep defaults when invalid values provided
+		if adapter.opts.responseHeaderTimeout != 30*time.Second {
+			t.Errorf("expected default responseHeaderTimeout 30s, got %v", adapter.opts.responseHeaderTimeout)
+		}
+		if adapter.opts.idleConnTimeout != 90*time.Second {
+			t.Errorf("expected default idleConnTimeout 90s, got %v", adapter.opts.idleConnTimeout)
+		}
+	})
 }
 
 // === Error types tests ===
