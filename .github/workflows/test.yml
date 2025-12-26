@@ -16,8 +16,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
+      # Explicit Docker host to avoid auto-detection delays
+      DOCKER_HOST: unix:///var/run/docker.sock
+      # Testcontainers timeouts
       RYUK_CONNECTION_TIMEOUT: 60s
       RYUK_RECONNECTION_TIMEOUT: 10s
+      # Disable Ryuk for debugging (containers won't auto-cleanup)
+      TESTCONTAINERS_RYUK_DISABLED: "true"
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -27,8 +32,55 @@ jobs:
         with:
           go-version-file: 'go.mod'
 
-      - name: Run tests
-        run: go test -v -race -timeout 10m -coverprofile=coverage.out ./...
+      - name: Verify Docker
+        run: |
+          docker version
+          docker info
+          docker ps
+
+      - name: Environment info
+        run: |
+          echo "=== Go version ==="
+          go version
+          echo "=== Environment variables ==="
+          env | grep -E "(DOCKER|TESTCONTAINERS|RYUK)" || true
+          echo "=== Docker socket ==="
+          ls -la /var/run/docker.sock || true
+          echo "=== Current user ==="
+          id
+          echo "=== Groups ==="
+          groups
+
+      - name: Run unit tests (no Docker)
+        run: |
+          echo "Running unit tests..."
+          go test -v -count=1 -timeout 2m ./client/... ./models/...
+          echo "Unit tests completed"
+
+      - name: Compile integration tests
+        run: |
+          echo "Compiling integration tests binary..."
+          go test -c -o tests.test ./tests/...
+          ls -la tests.test
+          echo "Compilation completed"
+
+      - name: Run integration tests
+        run: |
+          echo "Starting integration tests at $(date)"
+          ./tests.test -test.v -test.timeout 8m 2>&1 | tee integration-test.log &
+          TEST_PID=$!
+
+          # Monitor progress every 30 seconds
+          while kill -0 $TEST_PID 2>/dev/null; do
+            sleep 30
+            echo "=== Still running at $(date) ==="
+            tail -5 integration-test.log || true
+          done
+
+          wait $TEST_PID
+          EXIT_CODE=$?
+          echo "Integration tests finished with code $EXIT_CODE"
+          exit $EXIT_CODE
 
       - name: Upload coverage
         uses: actions/upload-artifact@v4

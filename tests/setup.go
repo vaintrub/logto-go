@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"text/template"
 	"time"
@@ -18,6 +19,12 @@ import (
 
 	"github.com/vaintrub/logto-go/client"
 )
+
+func init() {
+	fmt.Println("[setup] init() - all imports resolved, setup.go init complete")
+	fmt.Printf("[setup] DOCKER_HOST=%s\n", os.Getenv("DOCKER_HOST"))
+	fmt.Printf("[setup] TESTCONTAINERS_RYUK_DISABLED=%s\n", os.Getenv("TESTCONTAINERS_RYUK_DISABLED"))
+}
 
 //go:embed bootstrap.sql
 var bootstrapSQL string
