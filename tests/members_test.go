@@ -49,7 +49,7 @@ func TestOrganizationMembership(t *testing.T) {
 	assert.Equal(t, userID, members[0].User.ID)
 
 	// List user organizations
-	userOrgs, err := testClient.ListUserOrganizations(userID, client.DefaultIteratorConfig()).Collect(ctx)
+	userOrgs, err := testClient.ListUserOrganizations(ctx, userID)
 	require.NoError(t, err, "ListUserOrganizations should succeed")
 	found := false
 	for _, o := range userOrgs {
