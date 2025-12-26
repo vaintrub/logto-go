@@ -43,7 +43,7 @@ func TestAPIResourceCRUD(t *testing.T) {
 	require.NoError(t, err, "UpdateAPIResource should succeed")
 
 	// List resources
-	resources, err := testClient.ListAPIResources(ctx)
+	resources, err := testClient.ListAPIResources(client.DefaultIteratorConfig()).Collect(ctx)
 	require.NoError(t, err, "ListAPIResources should succeed")
 	assert.NotEmpty(t, resources)
 
@@ -94,7 +94,7 @@ func TestAPIResourceScopeCRUD(t *testing.T) {
 	require.NoError(t, err, "UpdateAPIResourceScope should succeed")
 
 	// List scopes
-	scopes, err := testClient.ListAPIResourceScopes(ctx, resourceID)
+	scopes, err := testClient.ListAPIResourceScopes(resourceID, client.DefaultIteratorConfig()).Collect(ctx)
 	require.NoError(t, err, "ListAPIResourceScopes should succeed")
 	assert.NotEmpty(t, scopes)
 
@@ -255,7 +255,9 @@ func TestCreateAPIResourceScope_Validation(t *testing.T) {
 func TestListAPIResourceScopes_Validation(t *testing.T) {
 	ctx := context.Background()
 
-	_, err := testClient.ListAPIResourceScopes(ctx, "")
+	iter := testClient.ListAPIResourceScopes("", client.DefaultIteratorConfig())
+	iter.Next(ctx)
+	err := iter.Err()
 	require.Error(t, err, "ListAPIResourceScopes with empty resourceID should fail")
 	var validationErr *client.ValidationError
 	require.ErrorAs(t, err, &validationErr)

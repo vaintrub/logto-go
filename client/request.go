@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 )
 
 // requestConfig contains parameters for an HTTP request.
@@ -110,6 +111,89 @@ func (a *Adapter) doJSON(ctx context.Context, cfg requestConfig, result interfac
 func (a *Adapter) doNoContent(ctx context.Context, cfg requestConfig) error {
 	_, _, err := a.doRequest(ctx, cfg)
 	return err
+}
+
+// requestResult contains the full response from an HTTP request.
+type requestResult struct {
+	Body       []byte
+	StatusCode int
+	Headers    http.Header
+}
+
+// doRequestFull executes an API request and returns full response including headers.
+// Used for paginated endpoints that need Total-Number header.
+func (a *Adapter) doRequestFull(ctx context.Context, cfg requestConfig) (*requestResult, error) {
+	// 1. Authenticate
+	tokenResult, err := a.AuthenticateM2M(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("authentication failed: %w", err)
+	}
+	token := tokenResult.AccessToken
+
+	// 2. Build URL with escaped path parameters
+	apiURL := a.buildURL(cfg.path, cfg.pathParams, cfg.query)
+
+	// 3. Serialize body if present
+	var bodyReader io.Reader
+	if cfg.body != nil {
+		bodyBytes, err := json.Marshal(cfg.body)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal request body: %w", err)
+		}
+		bodyReader = bytes.NewReader(bodyBytes)
+	}
+
+	// 4. Create request
+	req, err := http.NewRequestWithContext(ctx, cfg.method, apiURL, bodyReader)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	// 5. Set headers
+	req.Header.Set("Authorization", "Bearer "+token)
+	if cfg.body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+
+	// 6. Execute request
+	resp, err := a.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	// 7. Read response body
+	const maxResponseSize = 10 * 1024 * 1024 // 10MB
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	// 8. Check status code
+	if !isExpectedStatus(resp.StatusCode, cfg.expectCodes) {
+		requestID := resp.Header.Get("X-Request-Id")
+		return nil, newAPIErrorFromResponse(resp.StatusCode, respBody, requestID)
+	}
+
+	return &requestResult{
+		Body:       respBody,
+		StatusCode: resp.StatusCode,
+		Headers:    resp.Header,
+	}, nil
+}
+
+// getTotalFromHeaders extracts Total-Number header value.
+// Returns -1 if header is not present or invalid.
+func getTotalFromHeaders(headers http.Header) int {
+	totalStr := headers.Get("Total-Number")
+	if totalStr == "" {
+		return -1
+	}
+	total, err := strconv.Atoi(totalStr)
+	if err != nil {
+		return -1
+	}
+	return total
 }
 
 // buildURL constructs a full URL with escaped path parameters and query string.

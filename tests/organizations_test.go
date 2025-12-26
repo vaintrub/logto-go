@@ -50,7 +50,7 @@ func TestOrganizationCRUD(t *testing.T) {
 	assert.Equal(t, newName, verifiedOrg.Name)
 
 	// List organizations
-	orgs, err := testClient.ListOrganizations(ctx)
+	orgs, err := testClient.ListOrganizations(client.DefaultIteratorConfig()).Collect(ctx)
 	require.NoError(t, err, "ListOrganizations should succeed")
 	assert.NotEmpty(t, orgs)
 
@@ -108,19 +108,21 @@ func TestDeleteOrganization_Validation(t *testing.T) {
 func TestListUserOrganizations_Validation(t *testing.T) {
 	ctx := context.Background()
 
-	_, err := testClient.ListUserOrganizations(ctx, "")
+	iter := testClient.ListUserOrganizations("", client.DefaultIteratorConfig())
+	iter.Next(ctx)
+	err := iter.Err()
 	require.Error(t, err, "ListUserOrganizations with empty userID should fail")
 	var validationErr *client.ValidationError
 	require.ErrorAs(t, err, &validationErr)
 	assert.Equal(t, "userID", validationErr.Field)
 }
 
-// TestListOrganizations_Empty tests that ListOrganizations returns empty list when no orgs match
+// TestListOrganizations_Success tests that ListOrganizations returns organizations
 func TestListOrganizations_Success(t *testing.T) {
 	ctx := context.Background()
 
 	// This test just verifies the method works
-	orgs, err := testClient.ListOrganizations(ctx)
+	orgs, err := testClient.ListOrganizations(client.DefaultIteratorConfig()).Collect(ctx)
 	require.NoError(t, err, "ListOrganizations should succeed")
 	// orgs may be empty or non-empty depending on test state
 	_ = orgs
@@ -141,10 +143,10 @@ func TestOrganizationsIter_Success(t *testing.T) {
 		}
 	})
 
-	iter := testClient.ListOrganizationsIter(10)
+	iter := testClient.ListOrganizations(client.IteratorConfig{PageSize: 10})
 	count := 0
 	for iter.Next(ctx) {
-		org := iter.Organization()
+		org := iter.Item()
 		assert.NotEmpty(t, org.ID)
 		count++
 		if count >= 3 {

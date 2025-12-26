@@ -28,6 +28,28 @@ type Role struct {
 	Description string   `json:"description"`
 	Type        RoleType `json:"type"`
 	IsDefault   bool     `json:"isDefault"`
+	// Optional field returned with expanded queries
+	Scopes []RoleScope `json:"scopes,omitempty"`
+}
+
+// RoleScope represents an API resource scope assigned to a role.
+// This is returned when fetching role details with scopes included.
+type RoleScope struct {
+	ID          string        `json:"id"`
+	Name        string        `json:"name"`
+	Description string        `json:"description,omitempty"`
+	ResourceID  string        `json:"resourceId"`
+	Resource    *RoleResource `json:"resource,omitempty"`
+}
+
+// RoleResource represents an API resource within a role scope.
+type RoleResource struct {
+	TenantID       string `json:"tenantId"`
+	ID             string `json:"id"`
+	Name           string `json:"name"`
+	Indicator      string `json:"indicator"`
+	IsDefault      bool   `json:"isDefault"`
+	AccessTokenTTL int    `json:"accessTokenTtl"`
 }
 
 // RoleCreate represents fields for creating a new global role.

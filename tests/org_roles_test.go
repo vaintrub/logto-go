@@ -43,7 +43,7 @@ func TestOrganizationRoleCRUD(t *testing.T) {
 	require.NoError(t, err, "UpdateOrganizationRole should succeed")
 
 	// List roles
-	roles, err := testClient.ListOrganizationRoles(ctx)
+	roles, err := testClient.ListOrganizationRoles(client.DefaultIteratorConfig()).Collect(ctx)
 	require.NoError(t, err, "ListOrganizationRoles should succeed")
 	assert.NotEmpty(t, roles)
 
@@ -80,7 +80,7 @@ func TestOrganizationScopeCRUD(t *testing.T) {
 	require.NoError(t, err, "UpdateOrganizationScope should succeed")
 
 	// List scopes
-	scopes, err := testClient.ListOrganizationScopes(ctx)
+	scopes, err := testClient.ListOrganizationScopes(client.DefaultIteratorConfig()).Collect(ctx)
 	require.NoError(t, err, "ListOrganizationScopes should succeed")
 	assert.NotEmpty(t, scopes)
 

@@ -28,11 +28,8 @@ type (
 	// TokenResult represents an OAuth 2.0 token response.
 	TokenResult = client.TokenResult
 
-	// UserIterator provides pagination for listing users.
-	UserIterator = client.UserIterator
-
-	// OrganizationIterator provides pagination for listing organizations.
-	OrganizationIterator = client.OrganizationIterator
+	// IteratorConfig holds configuration for pagination.
+	IteratorConfig = client.IteratorConfig
 
 	// APIError represents an error from the Logto API.
 	APIError = client.APIError
@@ -55,6 +52,9 @@ type (
 	SubjectTokenContext = client.SubjectTokenContext
 	// TokenExchangeOption configures token exchange behavior.
 	TokenExchangeOption = client.TokenExchangeOption
+
+	// JWTCustomizerConfig represents the JWT customizer configuration.
+	JWTCustomizerConfig = client.JWTCustomizerConfig
 )
 
 // Re-export model types for convenient access
@@ -144,9 +144,15 @@ type (
 	SSOIdentity = models.SSOIdentity
 	// UserProfileUpdate represents fields for updating user profile.
 	UserProfileUpdate = models.UserProfileUpdate
+	// UserOrganizationRole represents a user's role assignment in an organization.
+	UserOrganizationRole = models.UserOrganizationRole
 
 	// OrganizationBranding represents branding settings for an organization.
 	OrganizationBranding = models.OrganizationBranding
+	// OrganizationColor represents the color scheme settings for an organization.
+	OrganizationColor = models.OrganizationColor
+	// OrganizationRoleInfo represents brief information about an organization role.
+	OrganizationRoleInfo = models.OrganizationRoleInfo
 
 	// ApplicationType represents the type of Logto application.
 	ApplicationType = models.ApplicationType
@@ -161,6 +167,10 @@ type (
 	RoleType = models.RoleType
 	// OrganizationRoleType is an alias for RoleType.
 	OrganizationRoleType = models.OrganizationRoleType
+	// RoleScope represents an API resource scope assigned to a role.
+	RoleScope = models.RoleScope
+	// RoleResource represents an API resource within a role scope.
+	RoleResource = models.RoleResource
 )
 
 // Re-export sentinel errors
@@ -209,6 +219,12 @@ const (
 const (
 	OrganizationRoleTypeUser             = models.OrganizationRoleTypeUser
 	OrganizationRoleTypeMachineToMachine = models.OrganizationRoleTypeMachineToMachine
+)
+
+// Re-export JWT token type constants
+const (
+	TokenTypeAccessToken       = client.TokenTypeAccessToken
+	TokenTypeClientCredentials = client.TokenTypeClientCredentials
 )
 
 // NewClient creates a new Logto client with the provided options.
@@ -262,4 +278,27 @@ func WithScopes(scopes ...string) TokenExchangeOption {
 // If not set, uses the default resource from client configuration.
 func WithExchangeResource(resource string) TokenExchangeOption {
 	return client.WithExchangeResource(resource)
+}
+
+// DefaultIteratorConfig returns sensible defaults for pagination matching Logto API.
+// PageSize: 20 (Logto API default)
+func DefaultIteratorConfig() IteratorConfig {
+	return client.DefaultIteratorConfig()
+}
+
+// PageResult is a generic type that contains a page of items with pagination metadata.
+// Use with Iterator.Total() and Iterator.HasMore() for cursor-based pagination adapters.
+type PageResult[T any] = client.PageResult[T]
+
+// PageFetcher is a function type that fetches a page of items.
+// It receives page number (1-based) and page size, returns PageResult with items and total count.
+type PageFetcher[T any] = client.PageFetcher[T]
+
+// Iterator is a generic iterator for paginated results.
+type Iterator[T any] = client.Iterator[T]
+
+// NewIterator creates a new generic iterator with the given fetcher and config.
+// This allows users to create custom iterators for their own paginated endpoints.
+func NewIterator[T any](fetcher PageFetcher[T], config IteratorConfig) *Iterator[T] {
+	return client.NewIterator(fetcher, config)
 }

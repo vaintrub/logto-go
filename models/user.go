@@ -35,14 +35,22 @@ type ProfileAddress struct {
 
 // SSOIdentity represents an SSO identity linked to a user.
 type SSOIdentity struct {
-	ID         string                 `json:"id"`
-	TenantID   string                 `json:"tenantId"`
-	UserID     string                 `json:"userId"`
-	Issuer     string                 `json:"issuer"`
-	IdentityID string                 `json:"identityId"`
-	Detail     map[string]interface{} `json:"detail"`
-	CreatedAt  UnixMilliTime          `json:"createdAt"`
-	SSOConnectorID string              `json:"ssoConnectorId"`
+	ID             string                 `json:"id"`
+	TenantID       string                 `json:"tenantId"`
+	UserID         string                 `json:"userId"`
+	Issuer         string                 `json:"issuer"`
+	IdentityID     string                 `json:"identityId"`
+	Detail         map[string]interface{} `json:"detail"`
+	CreatedAt      UnixMilliTime          `json:"createdAt"`
+	SSOConnectorID string                 `json:"ssoConnectorId"`
+}
+
+// UserOrganizationRole represents a user's role assignment in an organization.
+// This is returned when fetching user details with organization roles included.
+type UserOrganizationRole struct {
+	OrganizationID string `json:"organizationId"`
+	RoleID         string `json:"roleId"`
+	RoleName       string `json:"roleName"`
 }
 
 // User represents user data from Logto.
@@ -65,6 +73,10 @@ type User struct {
 	HasPassword            bool                     `json:"hasPassword"`
 	SSOIdentities          []SSOIdentity            `json:"ssoIdentities"`
 	MFAVerificationFactors []string                 `json:"mfaVerificationFactors"`
+	// Optional fields returned with expanded queries
+	Roles             []Role                 `json:"roles,omitempty"`
+	Organizations     []Organization         `json:"organizations,omitempty"`
+	OrganizationRoles []UserOrganizationRole `json:"organizationRoles,omitempty"`
 }
 
 // UserUpdate represents fields that can be updated for a user.

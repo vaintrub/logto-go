@@ -5,26 +5,39 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 
 	"github.com/vaintrub/logto-go/models"
 )
 
-// ListOrganizationRoles lists all organization roles with their scopes
-func (a *Adapter) ListOrganizationRoles(ctx context.Context) ([]models.OrganizationRole, error) {
-	body, _, err := a.doRequest(ctx, requestConfig{
+// ListOrganizationRoles returns an iterator for all organization roles with their scopes.
+func (a *Adapter) ListOrganizationRoles(config IteratorConfig) *Iterator[models.OrganizationRole] {
+	return NewIterator(a.listOrganizationRolesPaginated, config)
+}
+
+// listOrganizationRolesPaginated returns organization roles with pagination support
+func (a *Adapter) listOrganizationRolesPaginated(ctx context.Context, page, pageSize int) (PageResult[models.OrganizationRole], error) {
+	result, err := a.doRequestFull(ctx, requestConfig{
 		method: http.MethodGet,
 		path:   "/api/organization-roles",
+		query: url.Values{
+			"page":      {fmt.Sprintf("%d", page)},
+			"page_size": {fmt.Sprintf("%d", pageSize)},
+		},
 	})
 	if err != nil {
-		return nil, err
+		return PageResult[models.OrganizationRole]{}, err
 	}
 
 	var roles []models.OrganizationRole
-	if err := json.Unmarshal(body, &roles); err != nil {
-		return nil, fmt.Errorf("unmarshal organization roles: %w", err)
+	if err := json.Unmarshal(result.Body, &roles); err != nil {
+		return PageResult[models.OrganizationRole]{}, fmt.Errorf("unmarshal organization roles: %w", err)
 	}
 
-	return roles, nil
+	return PageResult[models.OrganizationRole]{
+		Items: roles,
+		Total: getTotalFromHeaders(result.Headers),
+	}, nil
 }
 
 // GetOrganizationRole retrieves a single organization role by ID with its scopes
@@ -242,22 +255,34 @@ func (a *Adapter) GetOrganizationScope(ctx context.Context, scopeID string) (*mo
 	return parseOrganizationScopeResponse(body)
 }
 
-// ListOrganizationScopes lists all organization scopes
-func (a *Adapter) ListOrganizationScopes(ctx context.Context) ([]models.OrganizationScope, error) {
-	body, _, err := a.doRequest(ctx, requestConfig{
+// ListOrganizationScopes returns an iterator for all organization scopes.
+func (a *Adapter) ListOrganizationScopes(config IteratorConfig) *Iterator[models.OrganizationScope] {
+	return NewIterator(a.listOrganizationScopesPaginated, config)
+}
+
+// listOrganizationScopesPaginated returns organization scopes with pagination support
+func (a *Adapter) listOrganizationScopesPaginated(ctx context.Context, page, pageSize int) (PageResult[models.OrganizationScope], error) {
+	result, err := a.doRequestFull(ctx, requestConfig{
 		method: http.MethodGet,
 		path:   "/api/organization-scopes",
+		query: url.Values{
+			"page":      {fmt.Sprintf("%d", page)},
+			"page_size": {fmt.Sprintf("%d", pageSize)},
+		},
 	})
 	if err != nil {
-		return nil, err
+		return PageResult[models.OrganizationScope]{}, err
 	}
 
 	var scopes []models.OrganizationScope
-	if err := json.Unmarshal(body, &scopes); err != nil {
-		return nil, fmt.Errorf("unmarshal organization scopes: %w", err)
+	if err := json.Unmarshal(result.Body, &scopes); err != nil {
+		return PageResult[models.OrganizationScope]{}, fmt.Errorf("unmarshal organization scopes: %w", err)
 	}
 
-	return scopes, nil
+	return PageResult[models.OrganizationScope]{
+		Items: scopes,
+		Total: getTotalFromHeaders(result.Headers),
+	}, nil
 }
 
 // CreateOrganizationScope creates a new organization scope

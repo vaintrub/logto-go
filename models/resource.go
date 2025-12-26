@@ -17,6 +17,8 @@ type APIResourceScope struct {
 	ResourceID  string `json:"resourceId"`
 	Name        string `json:"name"`
 	Description string `json:"description"`
+	// Optional field returned with expanded queries
+	Resource *APIResource `json:"resource,omitempty"`
 }
 
 // APIResourceCreate represents fields for creating a new API resource.
