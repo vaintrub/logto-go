@@ -15,9 +15,6 @@ jobs:
     name: Test
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    env:
-      DOCKER_HOST: unix:///var/run/docker.sock
-      TESTCONTAINERS_RYUK_DISABLED: "true"
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -26,9 +23,6 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version-file: 'go.mod'
-
-      - name: Verify Docker
-        run: docker version && docker info
 
       - name: Run tests
         run: go test -v -timeout 10m -coverprofile=coverage.out ./...

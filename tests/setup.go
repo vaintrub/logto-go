@@ -43,23 +43,18 @@ type EmailPayload struct {
 }
 
 // EmailMockServer holds received emails for verification in tests.
-// It listens on 0.0.0.0 so it's accessible from Docker containers via host.docker.internal.
+// It listens on 0.0.0.0 so it's accessible from Docker containers.
 type EmailMockServer struct {
-	server     *http.Server
-	listener   net.Listener
-	received   []EmailPayload
-	mu         sync.Mutex
-	port       int
-	dockerHost string // hostname for Docker containers to reach this server
+	server   *http.Server
+	listener net.Listener
+	received []EmailPayload
+	mu       sync.Mutex
+	port     int
 }
 
 // NewEmailMockServer creates a new mock email server that listens on all interfaces.
-// dockerHost should be "host.docker.internal" for Docker Desktop (macOS/Windows)
-// or the host's IP address for Linux.
-func NewEmailMockServer(dockerHost string) (*EmailMockServer, error) {
-	mock := &EmailMockServer{
-		dockerHost: dockerHost,
-	}
+func NewEmailMockServer() (*EmailMockServer, error) {
+	mock := &EmailMockServer{}
 
 	// Listen on all interfaces so Docker containers can connect
 	listener, err := net.Listen("tcp", "0.0.0.0:0")
@@ -89,14 +84,20 @@ func NewEmailMockServer(dockerHost string) (*EmailMockServer, error) {
 	return mock, nil
 }
 
+// Port returns the port the server is listening on.
+func (m *EmailMockServer) Port() int {
+	return m.port
+}
+
 // URL returns the server URL for local access.
 func (m *EmailMockServer) URL() string {
 	return fmt.Sprintf("http://127.0.0.1:%d", m.port)
 }
 
 // DockerURL returns the URL that Docker containers should use to reach this server.
+// Uses testcontainers.HostInternal which works with WithHostPortAccess.
 func (m *EmailMockServer) DockerURL() string {
-	return fmt.Sprintf("http://%s:%d", m.dockerHost, m.port)
+	return fmt.Sprintf("http://%s:%d", testcontainers.HostInternal, m.port)
 }
 
 // Close shuts down the mock server.
@@ -146,9 +147,7 @@ func Setup(ctx context.Context) (*Env, error) {
 	env := &Env{}
 
 	// Start email mock server first (needed for bootstrap SQL)
-	// Use host.docker.internal for Docker Desktop (macOS/Windows)
-	// On Linux, this might need to be the host's IP address
-	emailMock, err := NewEmailMockServer("host.docker.internal")
+	emailMock, err := NewEmailMockServer()
 	if err != nil {
 		return nil, fmt.Errorf("failed to start email mock server: %w", err)
 	}
@@ -260,28 +259,25 @@ func Setup(ctx context.Context) (*Env, error) {
 	log.Println("Step 3/6: M2M application bootstrapped")
 
 	log.Println("Step 4/6: Starting Logto server...")
-	// 4. Start Logto server
-	logtoReq := testcontainers.ContainerRequest{
-		Image:        "svhd/logto:latest",
-		ExposedPorts: []string{"3001/tcp", "3002/tcp"},
-		Env: map[string]string{
+	// 4. Start Logto server with host port access for email mock server
+	logtoContainer, err := testcontainers.Run(ctx, "svhd/logto:latest",
+		testcontainers.WithExposedPorts("3001/tcp", "3002/tcp"),
+		testcontainers.WithEnv(map[string]string{
 			"DB_URL":         postgresInternalURL,
 			"TRUST_PROXY":    "true",
 			"ENDPOINT":       "http://localhost:3001",
 			"ADMIN_ENDPOINT": "http://localhost:3002",
-		},
-		WaitingFor: wait.ForHTTP("/api/status").
-			WithPort("3001/tcp").
-			WithStatusCodeMatcher(func(status int) bool {
-				return status == 200 || status == 204
-			}).
-			WithStartupTimeout(120 * time.Second),
-	}
-
-	logtoContainer, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
-		ContainerRequest: logtoReq,
-		Started:          true,
-	})
+		}),
+		testcontainers.WithWaitStrategy(
+			wait.ForHTTP("/api/status").
+				WithPort("3001/tcp").
+				WithStatusCodeMatcher(func(status int) bool {
+					return status == 200 || status == 204
+				}).
+				WithStartupTimeout(120*time.Second),
+		),
+		testcontainers.WithHostPortAccess(env.EmailMock.Port()),
+	)
 	if err != nil {
 		env.Teardown(ctx)
 		return nil, fmt.Errorf("failed to start Logto container: %w", err)
