@@ -302,6 +302,149 @@ func TestTokenInfo_GetIntClaim(t *testing.T) {
 	}
 }
 
+func TestTokenInfo_GetMapClaim(t *testing.T) {
+	info := &TokenInfo{
+		RawClaims: map[string]any{
+			"metadata":  map[string]any{"key": "value", "count": float64(42)},
+			"nested":    map[string]any{"level1": map[string]any{"level2": "deep"}},
+			"not_map":   "just a string",
+			"empty_map": map[string]any{},
+		},
+	}
+
+	// Test valid map
+	metadata := info.GetMapClaim("metadata")
+	if metadata == nil {
+		t.Error("GetMapClaim(metadata) should return map, got nil")
+	}
+	if metadata["key"] != "value" {
+		t.Errorf("metadata['key'] = %v, want 'value'", metadata["key"])
+	}
+	if metadata["count"] != float64(42) {
+		t.Errorf("metadata['count'] = %v, want 42", metadata["count"])
+	}
+
+	// Test nested map
+	nested := info.GetMapClaim("nested")
+	if nested == nil {
+		t.Error("GetMapClaim(nested) should return map, got nil")
+	}
+	if level1, ok := nested["level1"].(map[string]any); ok {
+		if level1["level2"] != "deep" {
+			t.Errorf("nested['level1']['level2'] = %v, want 'deep'", level1["level2"])
+		}
+	} else {
+		t.Error("nested['level1'] should be a map")
+	}
+
+	// Test non-map type
+	if v := info.GetMapClaim("not_map"); v != nil {
+		t.Errorf("GetMapClaim(not_map) = %v, want nil", v)
+	}
+
+	// Test empty map (should return empty map, not nil)
+	empty := info.GetMapClaim("empty_map")
+	if empty == nil {
+		t.Error("GetMapClaim(empty_map) should return empty map, not nil")
+	}
+	if len(empty) != 0 {
+		t.Errorf("GetMapClaim(empty_map) len = %d, want 0", len(empty))
+	}
+
+	// Test nonexistent
+	if v := info.GetMapClaim("nonexistent"); v != nil {
+		t.Errorf("GetMapClaim(nonexistent) = %v, want nil", v)
+	}
+}
+
+func TestTokenInfo_GetMapClaim_NilRawClaims(t *testing.T) {
+	info := &TokenInfo{
+		UserID:    "user-123",
+		RawClaims: nil,
+	}
+
+	if v := info.GetMapClaim("anything"); v != nil {
+		t.Errorf("GetMapClaim on nil RawClaims should return nil, got %v", v)
+	}
+}
+
+func TestTokenInfo_GetArrayMapClaim(t *testing.T) {
+	info := &TokenInfo{
+		RawClaims: map[string]any{
+			"permissions": []any{
+				map[string]any{"resource": "api", "action": "read"},
+				map[string]any{"resource": "db", "action": "write"},
+			},
+			"mixed": []any{
+				map[string]any{"valid": "map"},
+				"not a map",
+				42,
+				map[string]any{"another": "valid"},
+			},
+			"not_array": map[string]any{"single": "map"},
+			"empty":     []any{},
+			"no_maps":   []any{"string1", "string2", 123},
+		},
+	}
+
+	// Test valid array of maps
+	permissions := info.GetArrayMapClaim("permissions")
+	if len(permissions) != 2 {
+		t.Errorf("GetArrayMapClaim(permissions) len = %d, want 2", len(permissions))
+	}
+	if permissions[0]["resource"] != "api" {
+		t.Errorf("permissions[0]['resource'] = %v, want 'api'", permissions[0]["resource"])
+	}
+	if permissions[1]["action"] != "write" {
+		t.Errorf("permissions[1]['action'] = %v, want 'write'", permissions[1]["action"])
+	}
+
+	// Test mixed array - should only include maps
+	mixed := info.GetArrayMapClaim("mixed")
+	if len(mixed) != 2 {
+		t.Errorf("GetArrayMapClaim(mixed) len = %d, want 2 (filtered)", len(mixed))
+	}
+	if mixed[0]["valid"] != "map" {
+		t.Errorf("mixed[0]['valid'] = %v, want 'map'", mixed[0]["valid"])
+	}
+	if mixed[1]["another"] != "valid" {
+		t.Errorf("mixed[1]['another'] = %v, want 'valid'", mixed[1]["another"])
+	}
+
+	// Test non-array (single map)
+	if v := info.GetArrayMapClaim("not_array"); v != nil {
+		t.Errorf("GetArrayMapClaim(not_array) = %v, want nil", v)
+	}
+
+	// Test empty array (returns empty slice, not nil)
+	empty := info.GetArrayMapClaim("empty")
+	if len(empty) != 0 {
+		t.Errorf("GetArrayMapClaim(empty) = %v, want []", empty)
+	}
+
+	// Test array with no valid maps (filters all, returns empty slice)
+	noMaps := info.GetArrayMapClaim("no_maps")
+	if len(noMaps) != 0 {
+		t.Errorf("GetArrayMapClaim(no_maps) = %v, want [] (all filtered)", noMaps)
+	}
+
+	// Test nonexistent
+	if v := info.GetArrayMapClaim("nonexistent"); v != nil {
+		t.Errorf("GetArrayMapClaim(nonexistent) = %v, want nil", v)
+	}
+}
+
+func TestTokenInfo_GetArrayMapClaim_NilRawClaims(t *testing.T) {
+	info := &TokenInfo{
+		UserID:    "user-123",
+		RawClaims: nil,
+	}
+
+	if v := info.GetArrayMapClaim("anything"); v != nil {
+		t.Errorf("GetArrayMapClaim on nil RawClaims should return nil, got %v", v)
+	}
+}
+
 func TestTokenInfo_RawClaims_Integration(t *testing.T) {
 	// Simulate what would come from a real JWT with custom claims
 	info := &TokenInfo{

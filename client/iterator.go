@@ -88,6 +88,22 @@ func (it *Iterator[T]) Next(ctx context.Context) bool {
 		return true
 	}
 
+	// Check if we can avoid fetching the next page
+	// 1. Partial page means this was the last page
+	if len(it.items) > 0 && len(it.items) < it.config.PageSize {
+		it.done = true
+		return false
+	}
+
+	// 2. If we know the total and have fetched everything
+	if it.total >= 0 {
+		fetched := it.page * it.config.PageSize
+		if fetched >= it.total {
+			it.done = true
+			return false
+		}
+	}
+
 	// Fetch next page
 	it.page++
 	result, err := it.fetcher(ctx, it.page, it.config.PageSize)

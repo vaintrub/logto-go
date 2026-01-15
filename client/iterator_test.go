@@ -311,4 +311,100 @@ func TestIterator_EdgeCases(t *testing.T) {
 		assert.Len(t, items, 2)
 		assert.False(t, iter.HasMore())
 	})
+
+	t.Run("PartialPage_NoExtraFetch", func(t *testing.T) {
+		fetchCount := 0
+		iter := NewIterator(
+			func(ctx context.Context, page, pageSize int) (PageResult[string], error) {
+				fetchCount++
+				if page == 1 {
+					// Return partial page (2 items < pageSize 10)
+					return PageResult[string]{Items: []string{"a", "b"}, Total: -1}, nil
+				}
+				t.Fatal("should not fetch page 2 for partial page")
+				return PageResult[string]{}, nil
+			},
+			IteratorConfig{PageSize: 10},
+		)
+
+		items, err := iter.Collect(ctx)
+		require.NoError(t, err)
+		assert.Len(t, items, 2)
+		assert.Equal(t, 1, fetchCount, "should only fetch once for partial page")
+	})
+
+	t.Run("KnownTotal_NoExtraFetch", func(t *testing.T) {
+		fetchCount := 0
+		iter := NewIterator(
+			func(ctx context.Context, page, pageSize int) (PageResult[string], error) {
+				fetchCount++
+				if page == 1 {
+					// Return exactly pageSize items with known total
+					items := make([]string, pageSize)
+					for i := 0; i < pageSize; i++ {
+						items[i] = fmt.Sprintf("item%d", i)
+					}
+					return PageResult[string]{Items: items, Total: pageSize}, nil
+				}
+				t.Fatal("should not fetch page 2 when total is known")
+				return PageResult[string]{}, nil
+			},
+			IteratorConfig{PageSize: 5},
+		)
+
+		items, err := iter.Collect(ctx)
+		require.NoError(t, err)
+		assert.Len(t, items, 5)
+		assert.Equal(t, 1, fetchCount, "should only fetch once when total equals fetched")
+	})
+
+	t.Run("MultiPage_KnownTotal_NoExtraFetch", func(t *testing.T) {
+		fetchCount := 0
+		iter := NewIterator(
+			func(ctx context.Context, page, pageSize int) (PageResult[string], error) {
+				fetchCount++
+				switch page {
+				case 1:
+					// Full page
+					return PageResult[string]{Items: []string{"a", "b", "c"}, Total: 5}, nil
+				case 2:
+					// Partial page (last)
+					return PageResult[string]{Items: []string{"d", "e"}, Total: 5}, nil
+				default:
+					t.Fatalf("should not fetch page %d", page)
+					return PageResult[string]{}, nil
+				}
+			},
+			IteratorConfig{PageSize: 3},
+		)
+
+		items, err := iter.Collect(ctx)
+		require.NoError(t, err)
+		assert.Len(t, items, 5)
+		assert.Equal(t, 2, fetchCount, "should fetch exactly 2 pages for 5 items with pageSize 3")
+	})
+
+	t.Run("MultiPage_ExactMultiple_KnownTotal_NoExtraFetch", func(t *testing.T) {
+		fetchCount := 0
+		iter := NewIterator(
+			func(ctx context.Context, page, pageSize int) (PageResult[string], error) {
+				fetchCount++
+				switch page {
+				case 1:
+					return PageResult[string]{Items: []string{"a", "b", "c"}, Total: 6}, nil
+				case 2:
+					return PageResult[string]{Items: []string{"d", "e", "f"}, Total: 6}, nil
+				default:
+					t.Fatalf("should not fetch page %d when total=6 is reached", page)
+					return PageResult[string]{}, nil
+				}
+			},
+			IteratorConfig{PageSize: 3},
+		)
+
+		items, err := iter.Collect(ctx)
+		require.NoError(t, err)
+		assert.Len(t, items, 6)
+		assert.Equal(t, 2, fetchCount, "should fetch exactly 2 pages when total is exact multiple of pageSize")
+	})
 }
