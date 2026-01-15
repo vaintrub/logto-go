@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.1.4](https://github.com/vaintrub/logto-go/compare/v1.1.3...v1.1.4) (2026-01-15)
+
+
+### Bug Fixes
+
+* iterator ([db5e4f0](https://github.com/vaintrub/logto-go/commit/db5e4f057f92ac3fbad502694ab2f62e4d2129a1))
+* iterator ([721e37c](https://github.com/vaintrub/logto-go/commit/721e37ca3b325b82a229513f180d1a71496ccd67))
+
 ## [1.1.3](https://github.com/vaintrub/logto-go/compare/v1.1.2...v1.1.3) (2025-12-26)
 
 
