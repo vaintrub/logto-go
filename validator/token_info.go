@@ -203,3 +203,31 @@ func (t *TokenInfo) GetIntClaim(key string) int {
 	}
 	return int(v)
 }
+
+// GetMapClaim returns a custom claim as map[string]any.
+// JSON objects are decoded as map[string]any.
+// Returns nil if claim doesn't exist or is not a map.
+func (t *TokenInfo) GetMapClaim(key string) map[string]any {
+	v, ok := t.GetClaim(key).(map[string]any)
+	if !ok {
+		return nil
+	}
+	return v
+}
+
+// GetArrayMapClaim returns a custom claim as []map[string]any.
+// Handles JSON arrays of objects which are decoded as []any containing map[string]any items.
+// Returns nil if claim doesn't exist or cannot be converted.
+func (t *TokenInfo) GetArrayMapClaim(key string) []map[string]any {
+	v, ok := t.GetClaim(key).([]any)
+	if !ok {
+		return nil
+	}
+	result := make([]map[string]any, 0, len(v))
+	for _, item := range v {
+		if m, ok := item.(map[string]any); ok {
+			result = append(result, m)
+		}
+	}
+	return result
+}
