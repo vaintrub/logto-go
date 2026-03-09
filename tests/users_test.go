@@ -235,11 +235,11 @@ func TestValidationErrorsUsers(t *testing.T) {
 	require.ErrorAs(t, err, &validationErr)
 	assert.Equal(t, "userID", validationErr.Field)
 
-	// Empty username should fail
+	// No identifier should fail
 	_, err = testClient.CreateUser(ctx, models.UserCreate{Password: "password"})
-	require.Error(t, err, "CreateUser with empty username should fail")
+	require.Error(t, err, "CreateUser with no identifier should fail")
 	require.ErrorAs(t, err, &validationErr)
-	assert.Equal(t, "username", validationErr.Field)
+	assert.Equal(t, "username/primaryEmail/primaryPhone", validationErr.Field)
 }
 
 // TestGetUserByEmail_Validation tests validation errors for GetUserByEmail
@@ -343,6 +343,212 @@ func TestUpdateUser_Validation(t *testing.T) {
 	name := "test"
 	_, err := testClient.UpdateUser(ctx, "", models.UserUpdate{Name: &name})
 	require.Error(t, err, "UpdateUser with empty userID should fail")
+	var validationErr *client.ValidationError
+	require.ErrorAs(t, err, &validationErr)
+	assert.Equal(t, "userID", validationErr.Field)
+}
+
+// TestCreateUserByEmail tests creating a user with only email (no username/password)
+func TestCreateUserByEmail(t *testing.T) {
+	ctx := context.Background()
+	email := fmt.Sprintf("emailonly%d@test.local", time.Now().UnixNano())
+
+	// Create user with email only
+	createdUser, err := testClient.CreateUser(ctx, models.UserCreate{
+		PrimaryEmail: email,
+		Name:         "Email Only User",
+	})
+	require.NoError(t, err, "CreateUser with email only should succeed")
+	t.Cleanup(func() {
+		_ = testClient.DeleteUser(context.Background(), createdUser.ID)
+	})
+	assert.NotEmpty(t, createdUser.ID)
+	assert.Equal(t, email, createdUser.PrimaryEmail)
+	assert.Equal(t, "Email Only User", createdUser.Name)
+	assert.Empty(t, createdUser.Username, "Username should be empty")
+
+	// Verify user has no password
+	hasPassword, err := testClient.HasUserPassword(ctx, createdUser.ID)
+	require.NoError(t, err)
+	assert.False(t, hasPassword, "User created without password should not have one")
+}
+
+// TestGetUserRoles tests retrieving user roles
+func TestGetUserRoles(t *testing.T) {
+	ctx := context.Background()
+	username := fmt.Sprintf("roleuser_%d", time.Now().UnixNano())
+
+	// Create user
+	createdUser, err := testClient.CreateUser(ctx, models.UserCreate{
+		Username: username,
+		Password: "Password123!",
+	})
+	require.NoError(t, err)
+	userID := createdUser.ID
+	t.Cleanup(func() {
+		_ = testClient.DeleteUser(context.Background(), userID)
+	})
+
+	// Initially user should have no roles
+	roles, err := testClient.GetUserRoles(ctx, userID)
+	require.NoError(t, err, "GetUserRoles should succeed")
+	assert.Empty(t, roles, "New user should have no roles")
+
+	// Create a role and assign it
+	roleName := fmt.Sprintf("Test Role %d", time.Now().UnixNano())
+	role, err := testClient.CreateRole(ctx, models.RoleCreate{
+		Name:        roleName,
+		Description: "Test role for GetUserRoles",
+		Type:        models.RoleTypeUser,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_ = testClient.DeleteRole(context.Background(), role.ID)
+	})
+
+	err = testClient.AssignRoleToUsers(ctx, role.ID, []string{userID})
+	require.NoError(t, err, "AssignRoleToUsers should succeed")
+
+	// Now GetUserRoles should return the assigned role
+	roles, err = testClient.GetUserRoles(ctx, userID)
+	require.NoError(t, err, "GetUserRoles should succeed")
+	require.Len(t, roles, 1, "User should have exactly one role")
+	assert.Equal(t, role.ID, roles[0].ID)
+	assert.Equal(t, roleName, roles[0].Name)
+}
+
+// TestGetUserRoles_Validation tests validation errors for GetUserRoles
+func TestGetUserRoles_Validation(t *testing.T) {
+	ctx := context.Background()
+
+	_, err := testClient.GetUserRoles(ctx, "")
+	require.Error(t, err, "GetUserRoles with empty userID should fail")
+	var validationErr *client.ValidationError
+	require.ErrorAs(t, err, &validationErr)
+	assert.Equal(t, "userID", validationErr.Field)
+}
+
+// TestReplaceUserRoles tests atomically replacing all roles for a user
+func TestReplaceUserRoles(t *testing.T) {
+	ctx := context.Background()
+	username := fmt.Sprintf("replroleuser_%d", time.Now().UnixNano())
+
+	// Create user
+	createdUser, err := testClient.CreateUser(ctx, models.UserCreate{
+		Username: username,
+		Password: "Password123!",
+	})
+	require.NoError(t, err)
+	userID := createdUser.ID
+	t.Cleanup(func() {
+		_ = testClient.DeleteUser(context.Background(), userID)
+	})
+
+	// Create two roles
+	role1Name := fmt.Sprintf("ReplRole1 %d", time.Now().UnixNano())
+	role1, err := testClient.CreateRole(ctx, models.RoleCreate{
+		Name:        role1Name,
+		Description: "First role for ReplaceUserRoles test",
+		Type:        models.RoleTypeUser,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_ = testClient.DeleteRole(context.Background(), role1.ID)
+	})
+
+	role2Name := fmt.Sprintf("ReplRole2 %d", time.Now().UnixNano())
+	role2, err := testClient.CreateRole(ctx, models.RoleCreate{
+		Name:        role2Name,
+		Description: "Second role for ReplaceUserRoles test",
+		Type:        models.RoleTypeUser,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_ = testClient.DeleteRole(context.Background(), role2.ID)
+	})
+
+	// Assign role1 via AssignRoleToUsers
+	err = testClient.AssignRoleToUsers(ctx, role1.ID, []string{userID})
+	require.NoError(t, err)
+
+	// Verify role1 is assigned
+	roles, err := testClient.GetUserRoles(ctx, userID)
+	require.NoError(t, err)
+	require.Len(t, roles, 1)
+	assert.Equal(t, role1.ID, roles[0].ID)
+
+	// Replace with role2
+	err = testClient.ReplaceUserRoles(ctx, userID, []string{role2.ID})
+	require.NoError(t, err, "ReplaceUserRoles should succeed")
+
+	// Verify only role2 is assigned (replacement, not addition)
+	roles, err = testClient.GetUserRoles(ctx, userID)
+	require.NoError(t, err)
+	require.Len(t, roles, 1, "User should have exactly one role after replacement")
+	assert.Equal(t, role2.ID, roles[0].ID)
+	assert.Equal(t, role2Name, roles[0].Name)
+}
+
+// TestReplaceUserRoles_Validation tests validation errors for ReplaceUserRoles
+func TestReplaceUserRoles_Validation(t *testing.T) {
+	ctx := context.Background()
+
+	err := testClient.ReplaceUserRoles(ctx, "", []string{"role-123"})
+	require.Error(t, err, "ReplaceUserRoles with empty userID should fail")
+	var validationErr *client.ValidationError
+	require.ErrorAs(t, err, &validationErr)
+	assert.Equal(t, "userID", validationErr.Field)
+}
+
+// TestPatchCustomData tests shallow-merging custom data for a user
+func TestPatchCustomData(t *testing.T) {
+	ctx := context.Background()
+	username := fmt.Sprintf("customdatauser_%d", time.Now().UnixNano())
+
+	// Create user
+	createdUser, err := testClient.CreateUser(ctx, models.UserCreate{
+		Username: username,
+		Password: "Password123!",
+	})
+	require.NoError(t, err)
+	userID := createdUser.ID
+	t.Cleanup(func() {
+		_ = testClient.DeleteUser(context.Background(), userID)
+	})
+
+	// Set initial custom data
+	result, err := testClient.PatchCustomData(ctx, userID, map[string]interface{}{
+		"key1": "value1",
+		"key2": "value2",
+	})
+	require.NoError(t, err, "PatchCustomData should succeed")
+	assert.Equal(t, "value1", result["key1"])
+	assert.Equal(t, "value2", result["key2"])
+
+	// Patch with partial update — key1 should be preserved
+	result, err = testClient.PatchCustomData(ctx, userID, map[string]interface{}{
+		"key2": "updated",
+		"key3": "value3",
+	})
+	require.NoError(t, err, "PatchCustomData partial update should succeed")
+	assert.Equal(t, "value1", result["key1"], "key1 should be preserved")
+	assert.Equal(t, "updated", result["key2"], "key2 should be updated")
+	assert.Equal(t, "value3", result["key3"], "key3 should be added")
+
+	// Verify via GetUser
+	user, err := testClient.GetUser(ctx, userID)
+	require.NoError(t, err)
+	assert.Equal(t, "value1", user.CustomData["key1"])
+	assert.Equal(t, "updated", user.CustomData["key2"])
+	assert.Equal(t, "value3", user.CustomData["key3"])
+}
+
+// TestPatchCustomData_Validation tests validation errors for PatchCustomData
+func TestPatchCustomData_Validation(t *testing.T) {
+	ctx := context.Background()
+
+	_, err := testClient.PatchCustomData(ctx, "", map[string]interface{}{"key": "value"})
+	require.Error(t, err, "PatchCustomData with empty userID should fail")
 	var validationErr *client.ValidationError
 	require.ErrorAs(t, err, &validationErr)
 	assert.Equal(t, "userID", validationErr.Field)

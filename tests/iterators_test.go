@@ -87,9 +87,9 @@ func TestValidationErrors(t *testing.T) {
 	require.ErrorAs(t, err, &validationErr)
 	assert.Equal(t, "name", validationErr.Field)
 
-	// Empty username should fail
+	// No identifier should fail
 	_, err = testClient.CreateUser(ctx, models.UserCreate{Password: "password"})
-	require.Error(t, err, "CreateUser with empty username should fail")
+	require.Error(t, err, "CreateUser with no identifier should fail")
 	require.ErrorAs(t, err, &validationErr)
-	assert.Equal(t, "username", validationErr.Field)
+	assert.Equal(t, "username/primaryEmail/primaryPhone", validationErr.Field)
 }

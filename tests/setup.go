@@ -207,7 +207,7 @@ func Setup(ctx context.Context) (*Env, error) {
 	// 2. Run Logto CLI to seed the database (creates tables)
 	// Logto Docker image expects commands passed to its entrypoint
 	seedReq := testcontainers.ContainerRequest{
-		Image:      "svhd/logto:latest",
+		Image:      "svhd/logto:1.36.0",
 		Entrypoint: []string{"/bin/sh", "-c"},
 		Cmd:        []string{"cd /etc/logto/packages/cli && npm start -- db seed --swe"},
 		Env: map[string]string{
@@ -260,7 +260,7 @@ func Setup(ctx context.Context) (*Env, error) {
 
 	log.Println("Step 4/6: Starting Logto server...")
 	// 4. Start Logto server with host port access for email mock server
-	logtoContainer, err := testcontainers.Run(ctx, "svhd/logto:latest",
+	logtoContainer, err := testcontainers.Run(ctx, "svhd/logto:1.36.0",
 		testcontainers.WithExposedPorts("3001/tcp", "3002/tcp"),
 		testcontainers.WithEnv(map[string]string{
 			"DB_URL":         postgresInternalURL,
