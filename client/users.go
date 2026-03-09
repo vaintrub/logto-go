@@ -277,9 +277,10 @@ func (a *Adapter) ReplaceUserRoles(ctx context.Context, userID string, roleIDs [
 	}
 
 	_, _, err := a.doRequest(ctx, requestConfig{
-		method:     http.MethodPut,
-		path:       "/api/users/%s/roles",
-		pathParams: []string{userID},
+		method:      http.MethodPut,
+		path:        "/api/users/%s/roles",
+		pathParams:  []string{userID},
+		expectCodes: []int{http.StatusOK, http.StatusNoContent},
 		body: map[string]interface{}{
 			"roleIds": roleIDs,
 		},
