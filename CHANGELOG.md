@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.1.5](https://github.com/vaintrub/logto-go/compare/v1.1.4...v1.1.5) (2026-03-09)
+
+
+### Features
+
+* add GetUserRoles, ReplaceUserRoles, PatchCustomData and flexible CreateUser ([f7b2843](https://github.com/vaintrub/logto-go/commit/f7b2843338b259f26968fe34a8b9d95ba4313e73))
+* add GetUserRoles, ReplaceUserRoles, PatchCustomData and flexible CreateUser ([150c610](https://github.com/vaintrub/logto-go/commit/150c610cf43c42fa01937271b264bf83c833d261))
+
+
+### Bug Fixes
+
+* add expectCodes to ReplaceUserRoles for 204 No Content ([94f9a40](https://github.com/vaintrub/logto-go/commit/94f9a40212756b4271d97693840876ac05cf4a6d))
+* update TestValidationErrors to match new CreateUser validation ([09f1663](https://github.com/vaintrub/logto-go/commit/09f1663ba8d6b1bcb1d0602c6f93952b710cf930))
+
 ## [1.1.4](https://github.com/vaintrub/logto-go/compare/v1.1.3...v1.1.4) (2026-01-15)
 
 
