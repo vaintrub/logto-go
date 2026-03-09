@@ -75,13 +75,11 @@ func (a *Adapter) ListUsers(config IteratorConfig) *Iterator[models.User] {
 	return NewIterator(a.listUsersPaginated, config)
 }
 
-// CreateUser creates a new user in Logto
+// CreateUser creates a new user in Logto.
+// At least one identifier (Username, PrimaryEmail, or PrimaryPhone) should be provided.
 func (a *Adapter) CreateUser(ctx context.Context, user models.UserCreate) (*models.User, error) {
-	if user.Username == "" {
-		return nil, &ValidationError{Field: "username", Message: "cannot be empty"}
-	}
-	if user.Password == "" {
-		return nil, &ValidationError{Field: "password", Message: "cannot be empty"}
+	if user.Username == "" && user.PrimaryEmail == "" && user.PrimaryPhone == "" {
+		return nil, &ValidationError{Field: "username/primaryEmail/primaryPhone", Message: "at least one identifier must be provided"}
 	}
 
 	body, _, err := a.doRequest(ctx, requestConfig{
@@ -245,6 +243,76 @@ func (a *Adapter) SuspendUser(ctx context.Context, userID string, suspended bool
 		},
 	})
 	return err
+}
+
+// GetUserRoles retrieves the global (tenant-level) roles assigned to a user.
+// GET /api/users/{userId}/roles
+func (a *Adapter) GetUserRoles(ctx context.Context, userID string) ([]models.Role, error) {
+	if userID == "" {
+		return nil, &ValidationError{Field: "userID", Message: "cannot be empty"}
+	}
+
+	body, _, err := a.doRequest(ctx, requestConfig{
+		method:     http.MethodGet,
+		path:       "/api/users/%s/roles",
+		pathParams: []string{userID},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	var roles []models.Role
+	if err := json.Unmarshal(body, &roles); err != nil {
+		return nil, fmt.Errorf("unmarshal user roles: %w", err)
+	}
+
+	return roles, nil
+}
+
+// ReplaceUserRoles atomically replaces all global roles for a user.
+// PUT /api/users/{userId}/roles
+func (a *Adapter) ReplaceUserRoles(ctx context.Context, userID string, roleIDs []string) error {
+	if userID == "" {
+		return &ValidationError{Field: "userID", Message: "cannot be empty"}
+	}
+
+	_, _, err := a.doRequest(ctx, requestConfig{
+		method:     http.MethodPut,
+		path:       "/api/users/%s/roles",
+		pathParams: []string{userID},
+		body: map[string]interface{}{
+			"roleIds": roleIDs,
+		},
+	})
+	return err
+}
+
+// PatchCustomData shallow-merges the provided keys into existing user customData.
+// Only the specified keys are updated; other existing keys are preserved.
+// PATCH /api/users/{userId}/custom-data
+func (a *Adapter) PatchCustomData(ctx context.Context, userID string, customData map[string]interface{}) (map[string]interface{}, error) {
+	if userID == "" {
+		return nil, &ValidationError{Field: "userID", Message: "cannot be empty"}
+	}
+
+	body, _, err := a.doRequest(ctx, requestConfig{
+		method:     http.MethodPatch,
+		path:       "/api/users/%s/custom-data",
+		pathParams: []string{userID},
+		body: map[string]interface{}{
+			"customData": customData,
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	var result map[string]interface{}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("unmarshal custom data: %w", err)
+	}
+
+	return result, nil
 }
 
 // listUsersPaginated returns users with pagination support

@@ -66,7 +66,7 @@ VALUES (
   'Traditional',
   'test-web-secret-12345',
   '{"redirectUris":["http://localhost:3000/callback"],"postLogoutRedirectUris":[]}',
-  '{"idTokenTtl":3600,"refreshTokenTtlInDays":14,"rotateRefreshToken":true}',
+  '{"idTokenTtl":3600,"refreshTokenTtlInDays":14,"rotateRefreshToken":true,"allowTokenExchange":true}',
   '{}',
   false,
   NOW()

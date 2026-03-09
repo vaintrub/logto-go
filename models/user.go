@@ -99,9 +99,11 @@ type UserUpdate struct {
 }
 
 // UserCreate represents fields for creating a new user.
+// At least one identifier (Username, PrimaryEmail, or PrimaryPhone) should be provided.
+// Password is optional — when omitted, the user can set it later via sign-in flow.
 type UserCreate struct {
-	Username     string                 `json:"username"`
-	Password     string                 `json:"password"`
+	Username     string                 `json:"username,omitempty"`
+	Password     string                 `json:"password,omitempty"`
 	Name         string                 `json:"name,omitempty"`
 	PrimaryEmail string                 `json:"primaryEmail,omitempty"`
 	PrimaryPhone string                 `json:"primaryPhone,omitempty"`

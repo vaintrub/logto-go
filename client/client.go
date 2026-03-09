@@ -36,6 +36,9 @@ type Client interface {
 	UpdateUser(ctx context.Context, userID string, update models.UserUpdate) (*models.User, error)
 	DeleteUser(ctx context.Context, userID string) error
 	SuspendUser(ctx context.Context, userID string, suspended bool) error
+	GetUserRoles(ctx context.Context, userID string) ([]models.Role, error)
+	ReplaceUserRoles(ctx context.Context, userID string, roleIDs []string) error
+	PatchCustomData(ctx context.Context, userID string, customData map[string]interface{}) (map[string]interface{}, error)
 
 	// User Password (GET/PATCH/POST /users/{userId}/password)
 	UpdateUserPassword(ctx context.Context, userID string, update models.UserPasswordUpdate) error
