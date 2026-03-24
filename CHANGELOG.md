@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.1.6](https://github.com/vaintrub/logto-go/compare/v1.1.5...v1.1.6) (2026-03-24)
+
+
+### Features
+
+* extended listOrganizations parameter ([1571c32](https://github.com/vaintrub/logto-go/commit/1571c32ddca4328d0ad3a37e27c4c8cb7caaa7f0))
+* extended listOrganizations parameter ([e5e2c94](https://github.com/vaintrub/logto-go/commit/e5e2c940624bdbf061662878f77d6b74092d830b))
+
+
+### Bug Fixes
+
+* made paginated function private again ([357ff39](https://github.com/vaintrub/logto-go/commit/357ff393b24ede42d6e9a06be28dd46dc15a392f))
+
 ## [1.1.5](https://github.com/vaintrub/logto-go/compare/v1.1.4...v1.1.5) (2026-03-09)
 
 
