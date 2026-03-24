@@ -42,7 +42,7 @@ func (a *Adapter) ListOrganizations(config ListOrganizationsRequest) *Iterator[m
 		req := config
 		req.Page = page
 		req.PageSize = pageSize
-		return a.ListOrganizationsPaginated(ctx, req)
+		return a.listOrganizationsPaginated(ctx, req)
 	}
 	return NewIterator(fetcher, config.IteratorConfig)
 }
@@ -124,8 +124,8 @@ func (a *Adapter) DeleteOrganization(ctx context.Context, orgID string) error {
 	})
 }
 
-// ListOrganizationsPaginated returns organizations with pagination support
-func (a *Adapter) ListOrganizationsPaginated(ctx context.Context, request ListOrganizationsRequest) (PageResult[models.Organization], error) {
+// listOrganizationsPaginated returns organizations with pagination support
+func (a *Adapter) listOrganizationsPaginated(ctx context.Context, request ListOrganizationsRequest) (PageResult[models.Organization], error) {
 	query := url.Values{
 		"page":      {fmt.Sprintf("%d", request.Page)},
 		"page_size": {fmt.Sprintf("%d", request.PageSize)},

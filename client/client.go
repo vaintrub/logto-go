@@ -62,7 +62,7 @@ type Client interface {
 	AssignRolesToOrganizationUsers(ctx context.Context, orgID string, userIDs, roleIDs []string) error // Batch assign roles
 	GetUserRolesInOrganization(ctx context.Context, orgID, userID string) ([]models.OrganizationRole, error)
 	GetUserScopesInOrganization(ctx context.Context, orgID, userID string) ([]models.OrganizationScope, error)
-	ListOrganizationsPaginated(ctx context.Context, request ListOrganizationsRequest) (PageResult[models.Organization], error)
+
 	// Organization Applications (GET/POST/DELETE /organizations/{id}/applications/*)
 	ListOrganizationApplications(orgID string, config IteratorConfig) *Iterator[models.Application]
 	AddOrganizationApplications(ctx context.Context, orgID string, applicationIDs []string) error
