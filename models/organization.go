@@ -24,6 +24,13 @@ type OrganizationRoleInfo struct {
 	Name string `json:"name"`
 }
 
+// FeaturedUser represents brief information about a featured user in an organization.
+type FeaturedUser struct {
+	ID     string `json:"id"`
+	Avatar string `json:"avatar"`
+	Name   string `json:"name"`
+}
+
 // Organization represents organization details from Logto.
 type Organization struct {
 	ID            string                 `json:"id"`
@@ -34,10 +41,12 @@ type Organization struct {
 	IsMfaRequired bool                   `json:"isMfaRequired"`
 	Branding      *OrganizationBranding  `json:"branding"`
 	CreatedAt     UnixMilliTime          `json:"createdAt"`
+	UsersCount    int                    `json:"usersCount,omitempty"`
 	// Optional fields returned with expanded queries
 	Color             *OrganizationColor     `json:"color,omitempty"`
 	CustomCSS         string                 `json:"customCss,omitempty"`
 	OrganizationRoles []OrganizationRoleInfo `json:"organizationRoles,omitempty"`
+	FeaturedUsers     []FeaturedUser         `json:"featuredUsers,omitempty"`
 }
 
 // UserOrganization represents an organization with the user's roles in it.

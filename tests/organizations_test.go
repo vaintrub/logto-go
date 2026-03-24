@@ -50,7 +50,7 @@ func TestOrganizationCRUD(t *testing.T) {
 	assert.Equal(t, newName, verifiedOrg.Name)
 
 	// List organizations
-	orgs, err := testClient.ListOrganizations(client.DefaultIteratorConfig()).Collect(ctx)
+	orgs, err := testClient.ListOrganizations(client.ListOrganizationsRequest{}).Collect(ctx)
 	require.NoError(t, err, "ListOrganizations should succeed")
 	assert.NotEmpty(t, orgs)
 
@@ -120,7 +120,7 @@ func TestListOrganizations_Success(t *testing.T) {
 	ctx := context.Background()
 
 	// This test just verifies the method works
-	orgs, err := testClient.ListOrganizations(client.DefaultIteratorConfig()).Collect(ctx)
+	orgs, err := testClient.ListOrganizations(client.ListOrganizationsRequest{}).Collect(ctx)
 	require.NoError(t, err, "ListOrganizations should succeed")
 	// orgs may be empty or non-empty depending on test state
 	_ = orgs
@@ -141,7 +141,7 @@ func TestOrganizationsIter_Success(t *testing.T) {
 		}
 	})
 
-	iter := testClient.ListOrganizations(client.IteratorConfig{PageSize: 10})
+	iter := testClient.ListOrganizations(client.ListOrganizationsRequest{IteratorConfig: client.IteratorConfig{PageSize: 10}})
 	count := 0
 	for iter.Next(ctx) {
 		org := iter.Item()

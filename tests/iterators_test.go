@@ -52,7 +52,7 @@ func TestIterators(t *testing.T) {
 			}
 		})
 
-		iter := testClient.ListOrganizations(client.IteratorConfig{PageSize: 10})
+		iter := testClient.ListOrganizations(client.ListOrganizationsRequest{IteratorConfig: client.IteratorConfig{PageSize: 10}})
 		count := 0
 		for iter.Next(ctx) {
 			org := iter.Item()

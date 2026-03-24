@@ -47,7 +47,7 @@ type Client interface {
 
 	// Organizations (GET /organizations, GET /organizations/{id}, POST/PATCH/DELETE)
 	GetOrganization(ctx context.Context, orgID string) (*models.Organization, error)
-	ListOrganizations(config IteratorConfig) *Iterator[models.Organization]
+	ListOrganizations(config ListOrganizationsRequest) *Iterator[models.Organization]
 	ListUserOrganizations(ctx context.Context, userID string) ([]models.UserOrganization, error)
 	CreateOrganization(ctx context.Context, org models.OrganizationCreate) (*models.Organization, error)
 	UpdateOrganization(ctx context.Context, orgID string, update models.OrganizationUpdate) (*models.Organization, error)
