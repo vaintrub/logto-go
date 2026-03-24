@@ -10,6 +10,14 @@ import (
 	"github.com/vaintrub/logto-go/models"
 )
 
+// ListOrganizationsRequest defines parameters for listing organizations with pagination and filtering options.
+type ListOrganizationsRequest struct {
+	IteratorConfig
+	Page         int
+	Q            string
+	ShowFeatured bool
+}
+
 // GetOrganization retrieves organization details
 func (a *Adapter) GetOrganization(ctx context.Context, orgID string) (*models.Organization, error) {
 	if orgID == "" {
@@ -29,8 +37,14 @@ func (a *Adapter) GetOrganization(ctx context.Context, orgID string) (*models.Or
 }
 
 // ListOrganizations returns an iterator for paginating through all organizations.
-func (a *Adapter) ListOrganizations(config IteratorConfig) *Iterator[models.Organization] {
-	return NewIterator(a.listOrganizationsPaginated, config)
+func (a *Adapter) ListOrganizations(config ListOrganizationsRequest) *Iterator[models.Organization] {
+	fetcher := func(ctx context.Context, page, pageSize int) (PageResult[models.Organization], error) {
+		req := config
+		req.Page = page
+		req.PageSize = pageSize
+		return a.ListOrganizationsPaginated(ctx, req)
+	}
+	return NewIterator(fetcher, config.IteratorConfig)
 }
 
 // ListUserOrganizations returns all organizations a user belongs to,
@@ -110,15 +124,23 @@ func (a *Adapter) DeleteOrganization(ctx context.Context, orgID string) error {
 	})
 }
 
-// listOrganizationsPaginated returns organizations with pagination support
-func (a *Adapter) listOrganizationsPaginated(ctx context.Context, page, pageSize int) (PageResult[models.Organization], error) {
+// ListOrganizationsPaginated returns organizations with pagination support
+func (a *Adapter) ListOrganizationsPaginated(ctx context.Context, request ListOrganizationsRequest) (PageResult[models.Organization], error) {
+	query := url.Values{
+		"page":      {fmt.Sprintf("%d", request.Page)},
+		"page_size": {fmt.Sprintf("%d", request.PageSize)},
+	}
+	if request.Q != "" {
+		query.Set("q", request.Q)
+	}
+	if request.ShowFeatured {
+		query.Set("showFeatured", fmt.Sprintf("%t", request.ShowFeatured))
+	}
+
 	result, err := a.doRequestFull(ctx, requestConfig{
 		method: http.MethodGet,
 		path:   "/api/organizations",
-		query: url.Values{
-			"page":      {fmt.Sprintf("%d", page)},
-			"page_size": {fmt.Sprintf("%d", pageSize)},
-		},
+		query:  query,
 	})
 	if err != nil {
 		return PageResult[models.Organization]{}, err

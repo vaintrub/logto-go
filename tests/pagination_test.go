@@ -100,7 +100,7 @@ func TestPagination_ListOrganizations(t *testing.T) {
 	})
 
 	// Collect via iterator
-	iter := testClient.ListOrganizations(client.IteratorConfig{PageSize: paginationTestPageSize})
+	iter := testClient.ListOrganizations(client.ListOrganizationsRequest{IteratorConfig: client.IteratorConfig{PageSize: paginationTestPageSize}})
 	allOrgs, err := iter.Collect(ctx)
 	require.NoError(t, err, "ListOrganizations should succeed")
 

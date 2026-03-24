@@ -47,7 +47,7 @@ type Client interface {
 
 	// Organizations (GET /organizations, GET /organizations/{id}, POST/PATCH/DELETE)
 	GetOrganization(ctx context.Context, orgID string) (*models.Organization, error)
-	ListOrganizations(config IteratorConfig) *Iterator[models.Organization]
+	ListOrganizations(config ListOrganizationsRequest) *Iterator[models.Organization]
 	ListUserOrganizations(ctx context.Context, userID string) ([]models.UserOrganization, error)
 	CreateOrganization(ctx context.Context, org models.OrganizationCreate) (*models.Organization, error)
 	UpdateOrganization(ctx context.Context, orgID string, update models.OrganizationUpdate) (*models.Organization, error)
@@ -62,7 +62,7 @@ type Client interface {
 	AssignRolesToOrganizationUsers(ctx context.Context, orgID string, userIDs, roleIDs []string) error // Batch assign roles
 	GetUserRolesInOrganization(ctx context.Context, orgID, userID string) ([]models.OrganizationRole, error)
 	GetUserScopesInOrganization(ctx context.Context, orgID, userID string) ([]models.OrganizationScope, error)
-
+	ListOrganizationsPaginated(ctx context.Context, request ListOrganizationsRequest) (PageResult[models.Organization], error)
 	// Organization Applications (GET/POST/DELETE /organizations/{id}/applications/*)
 	ListOrganizationApplications(orgID string, config IteratorConfig) *Iterator[models.Application]
 	AddOrganizationApplications(ctx context.Context, orgID string, applicationIDs []string) error
