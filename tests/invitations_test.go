@@ -48,7 +48,7 @@ func TestOrganizationInvitations(t *testing.T) {
 	require.NoError(t, err, "GetOrganizationInvitation should succeed")
 	assert.Equal(t, invitationID, invitation.ID)
 	assert.Equal(t, inviteeEmail, invitation.Invitee)
-	assert.Equal(t, "Pending", invitation.Status)
+	assert.Equal(t, models.InvitationStatusPending, invitation.Status)
 
 	// List invitations
 	invitations, err := testClient.ListOrganizationInvitations(ctx, orgID)
