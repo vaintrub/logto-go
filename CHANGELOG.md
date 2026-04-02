@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.1.7](https://github.com/vaintrub/logto-go/compare/v1.1.6...v1.1.7) (2026-04-02)
+
+
+### Features
+
+* added an update invitation status method ([6747c36](https://github.com/vaintrub/logto-go/commit/6747c3643caa23645a49eb600531d743c6a287ce))
+* tests ([9b13803](https://github.com/vaintrub/logto-go/commit/9b138036bfac571cab767ce85ffced11dff3a993))
+* updateStatus function ([a494b36](https://github.com/vaintrub/logto-go/commit/a494b3609b60d42bcce3d90403ba484b11381d60))
+
 ## [1.1.6](https://github.com/vaintrub/logto-go/compare/v1.1.5...v1.1.6) (2026-03-24)
 
 
