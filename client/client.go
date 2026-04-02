@@ -141,7 +141,7 @@ type Client interface {
 	GetOrganizationInvitation(ctx context.Context, invitationID string) (*models.OrganizationInvitation, error)
 	DeleteOrganizationInvitation(ctx context.Context, invitationID string) error
 	SendInvitationMessage(ctx context.Context, invitationID, magicLink string) error
-
+	UpdateOrganizationInvitationStatus(ctx context.Context, invitationID string, status models.InvitationStatus, acceptedUserID *string) error
 	// Verification Codes (POST /api/verification-codes)
 	RequestVerificationCode(ctx context.Context, req VerificationCodeRequest) error
 	VerifyCode(ctx context.Context, req VerifyCodeRequest) error

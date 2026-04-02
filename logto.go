@@ -97,6 +97,8 @@ type (
 	OrganizationInvitation = models.OrganizationInvitation
 	// OrganizationInvitationCreate represents the data needed to create an invitation.
 	OrganizationInvitationCreate = models.OrganizationInvitationCreate
+	// InvitationStatus represents the status of an organization invitation.
+	InvitationStatus = models.InvitationStatus
 
 	// APIResource represents an API resource in Logto.
 	APIResource = models.APIResource
@@ -219,6 +221,14 @@ const (
 const (
 	OrganizationRoleTypeUser             = models.OrganizationRoleTypeUser
 	OrganizationRoleTypeMachineToMachine = models.OrganizationRoleTypeMachineToMachine
+)
+
+// Re-export invitation status constants
+const (
+	InvitationStatusPending  = models.InvitationStatusPending
+	InvitationStatusAccepted = models.InvitationStatusAccepted
+	InvitationStatusExpired  = models.InvitationStatusExpired
+	InvitationStatusRevoked  = models.InvitationStatusRevoked
 )
 
 // Re-export JWT token type constants

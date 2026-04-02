@@ -973,6 +973,39 @@ func (a *Adapter) DeleteOrganizationInvitation(ctx context.Context, invitationID
 	})
 }
 
+// UpdateOrganizationInvitationStatus updates the status of an invitation
+func (a *Adapter) UpdateOrganizationInvitationStatus(
+	ctx context.Context,
+	invitationID string,
+	status models.InvitationStatus,
+	acceptedUserID *string,
+) error {
+	if invitationID == "" {
+		return &ValidationError{Field: "invitationID", Message: "cannot be empty"}
+	}
+
+	if status != models.InvitationStatusAccepted && status != models.InvitationStatusRevoked {
+		return &ValidationError{Field: "status", Message: "must be Accepted or Revoked"}
+	}
+	payload := map[string]interface{}{
+		"status": status,
+	}
+	if status == models.InvitationStatusAccepted {
+		if acceptedUserID == nil {
+			return &ValidationError{Field: "acceptedUserID", Message: "cannot be empty on accepted invitation"}
+		} else {
+			payload["acceptedUserId"] = *acceptedUserID
+		}
+	}
+	return a.doNoContent(ctx, requestConfig{
+		method:      http.MethodPut,
+		path:        "/api/organization-invitations/%s/status",
+		pathParams:  []string{invitationID},
+		body:        payload,
+		expectCodes: []int{http.StatusOK},
+	})
+}
+
 // SendInvitationMessage sends the invitation email with a magic link
 func (a *Adapter) SendInvitationMessage(ctx context.Context, invitationID, magicLink string) error {
 	if invitationID == "" {
@@ -1047,4 +1080,3 @@ func parseApplicationResponse(data []byte) (*models.Application, error) {
 	}
 	return &app, nil
 }
-
