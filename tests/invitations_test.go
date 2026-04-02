@@ -122,6 +122,50 @@ func TestSendInvitationMessage(t *testing.T) {
 	}
 }
 
+// TestUpdateOrganizationInvitationStatus tests updating invitation status
+func TestUpdateOrganizationInvitationStatus(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	// Create organization
+	createdOrg, err := testClient.CreateOrganization(ctx, models.OrganizationCreate{
+		Name: fmt.Sprintf("Update Status Org %d", time.Now().UnixNano()),
+	})
+	require.NoError(t, err)
+	orgID := createdOrg.ID
+	t.Cleanup(func() {
+		if err := testClient.DeleteOrganization(context.Background(), orgID); err != nil {
+			t.Logf("cleanup: failed to delete organization %s: %v", orgID, err)
+		}
+	})
+
+	// Create invitation
+	inviteeEmail := fmt.Sprintf("update_status_%d@test.local", time.Now().UnixNano())
+	expiresAt := models.UnixMilliTime{Time: time.Now().Add(24 * time.Hour)}
+
+	createdInvitation, err := testClient.CreateOrganizationInvitation(ctx, models.OrganizationInvitationCreate{
+		OrganizationID: orgID,
+		Invitee:        inviteeEmail,
+		ExpiresAt:      expiresAt,
+	})
+	require.NoError(t, err)
+	invitationID := createdInvitation.ID
+
+	// Verify initial status is Pending
+	invitation, err := testClient.GetOrganizationInvitation(ctx, invitationID)
+	require.NoError(t, err)
+	assert.Equal(t, models.InvitationStatusPending, invitation.Status)
+
+	// Update status to Revoked
+	err = testClient.UpdateOrganizationInvitationStatus(ctx, invitationID, models.InvitationStatusRevoked, nil)
+	require.NoError(t, err, "UpdateOrganizationInvitationStatus should succeed")
+
+	// Verify status was updated
+	invitation, err = testClient.GetOrganizationInvitation(ctx, invitationID)
+	require.NoError(t, err)
+	assert.Equal(t, models.InvitationStatusRevoked, invitation.Status)
+}
+
 // === Validation Tests ===
 
 // TestCreateOrganizationInvitation_Validation tests validation errors
@@ -209,5 +253,27 @@ func TestSendInvitationMessage_Validation(t *testing.T) {
 		var validationErr *client.ValidationError
 		require.ErrorAs(t, err, &validationErr)
 		assert.Equal(t, "magicLink", validationErr.Field)
+	})
+}
+
+// TestUpdateOrganizationInvitationStatus_Validation tests validation errors
+func TestUpdateOrganizationInvitationStatus_Validation(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	t.Run("empty invitationID", func(t *testing.T) {
+		err := testClient.UpdateOrganizationInvitationStatus(ctx, "", models.InvitationStatusRevoked, nil)
+		require.Error(t, err, "UpdateOrganizationInvitationStatus with empty invitationID should fail")
+		var validationErr *client.ValidationError
+		require.ErrorAs(t, err, &validationErr)
+		assert.Equal(t, "invitationID", validationErr.Field)
+	})
+
+	t.Run("accepted status without acceptedUserId", func(t *testing.T) {
+		err := testClient.UpdateOrganizationInvitationStatus(ctx, "invitation-123", models.InvitationStatusAccepted, nil)
+		require.Error(t, err, "UpdateOrganizationInvitationStatus with Accepted status but no acceptedUserId should fail")
+		var validationErr *client.ValidationError
+		require.ErrorAs(t, err, &validationErr)
+		assert.Equal(t, "acceptedUserID", validationErr.Field)
 	})
 }
